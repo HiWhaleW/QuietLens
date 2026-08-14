@@ -1,35 +1,15 @@
 # QuietLens
 
-QuietLens is a desktop web prototype for finding places that match a user's current sensory preferences. Instead of ranking cafes by popularity, it compares quietness, crowd levels, natural light, and seating comfort for the selected time and activity.
+QuietLens is a sensory-aware place discovery map for people who want to understand how a cafe may feel before they arrive. Instead of ranking places by popularity, it helps users compare environments according to their current activity, time, and sensory preferences.
 
-## Current Scope
+![QuietLens product interface](media/quietlens-product-preview.png)
 
-- Desktop web experience; mobile is intentionally out of scope for this phase
-- Three fixed, high-resolution Shanghai watercolor map boards
-- Ten prototype cafe results in Huangpu District
-- Deterministic preference scoring across four sensory dimensions
-- Map-first selection flow with a watercolor place reveal and evidence drawer
+## Product Features
 
-## Run Locally
-
-```bash
-npm install
-npm run dev
-```
-
-Create and verify a production build with:
-
-```bash
-npm run build
-npm run test:sites
-```
-
-## Privacy and Repository Boundaries
-
-This repository contains only the source code and original production assets required to run QuietLens. Local research photos, competitor references, internal review captures, machine-specific paths, credentials, and environment files are excluded from version control.
-
-The cafe content is a prototype and should not be treated as a real-time guarantee of availability, noise, crowding, or opening hours.
-
-## License
-
-Copyright (c) 2026 QuietLens. All rights reserved. See [LICENSE](LICENSE).
+- **Activity-aware discovery:** choose deep work, rest, or casual conversation to re-rank places for the moment.
+- **Four sensory preferences:** compare quietness, low crowding, natural light, and seating comfort.
+- **Time and region controls:** explore recommendations for different visit periods and Shanghai map areas.
+- **Map-first comparison:** review ten Huangpu cafe candidates directly on a high-resolution watercolor map.
+- **Place evidence:** open a cafe to see its fit score, confidence, recommended time, sensory details, and evidence status.
+- **Visible uncertainty:** surface possible conflicts and changing conditions without presenting estimates as guarantees.
+- **Watercolor place reveal:** transform verified storefront references into a visual scene that stays consistent with the map's illustration style.

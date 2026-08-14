@@ -10,6 +10,7 @@ import {
   useMap,
   useMapEvents,
 } from "react-leaflet";
+import { projectCafeToHuangpu } from "./mapProjection.js";
 
 const MAP_BOUNDS = [
   [0, 0],
@@ -50,11 +51,6 @@ function toCentralPosition([lat, lng]) {
   return [((lat - 200) / 600) * 1024, ((lng - 350) / 900) * 1536];
 }
 
-function toHuangpuPosition(position) {
-  const [lat, lng] = toCentralPosition(position);
-  return [(lat * 1.25) - 131, (lng * 1.25) - 375];
-}
-
 function markerIcon(cafe) {
   return L.divIcon({
     className: "quiet-marker-host",
@@ -77,7 +73,7 @@ function sceneIcon(cafe, closing) {
 
 function SafeSceneMarker({ cafe, closing, drawerOpen }) {
   const map = useMap();
-  const targetPosition = useMemo(() => toHuangpuPosition(cafe.mapPosition), [cafe.mapPosition]);
+  const targetPosition = useMemo(() => projectCafeToHuangpu(cafe), [cafe]);
   const [position, setPosition] = useState(targetPosition);
 
   useEffect(() => {
@@ -190,7 +186,7 @@ function CafeMarkers({ cafes, selectedCafe, boardLevel, onBoardLevel, onSelect }
   return cafes.map((cafe) => (
     <Marker
       key={`${cafe.id}-${cafe.matchScore}`}
-      position={toHuangpuPosition(cafe.mapPosition)}
+      position={projectCafeToHuangpu(cafe)}
       icon={markerIcon(cafe)}
       bubblingMouseEvents={false}
       title={cafe.name}
