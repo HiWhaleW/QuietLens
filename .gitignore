@@ -1,0 +1,33 @@
+# Dependencies and builds
+node_modules/
+.venv/
+.next/
+out/
+dist/
+coverage/
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Local-only research and migration references
+.research/
+.legacy-reference/
+
+# Internal design process and local QA records
+AGENTS.md
+design-qa.md
+docs/
+
+# Superseded visual assets retained locally for comparison
+public/assets/cafes/naive-watercolor.png
+public/assets/map/shanghai-watercolor-map.png
+public/assets/map/shanghai-watercolor-map-v2.png
+public/assets/map/shanghai-watercolor-map-v3.png
+
+# Editors and operating systems
+.DS_Store
+*.log
+.idea/
+.vscode/
