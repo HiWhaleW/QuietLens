@@ -17,8 +17,8 @@ const MARKER_NUDGES = {
   "hp-naive": [8, -15],
   "hp-east-sea": [-8, 15],
   "hp-cafe-on-air": [5, 10],
-  "hp-antique": [-6, 0],
-  "hp-naive-tree": [0, -10],
+  "hp-antique": [-14, -4],
+  "hp-naive-tree": [0, 0],
 };
 
 function normalize(value, min, max) {

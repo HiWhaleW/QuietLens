@@ -66,3 +66,24 @@ test("emits the files required by Sites packaging", async () => {
   await access(new URL("../dist/server/index.js", import.meta.url));
   await access(new URL("../dist/.openai/hosting.json", import.meta.url));
 });
+
+test("the packaged Worker exposes the AI decision API with server-only evidence", async () => {
+  const builtWorker = (await import(`../dist/server/index.js?test=${Date.now()}`)).default;
+  const response = await builtWorker.fetch(new Request("https://example.test/api/decision/interpret", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://example.test" },
+    body: JSON.stringify({
+      session_id: "sess-built-worker",
+      request_id: "req-built-worker",
+      user_text: "明天下午在黄浦工作九十分钟。",
+      mode: "initial",
+      page_context: { area: "黄浦区" },
+    }),
+  }), {
+    ASSETS: { fetch: async () => new Response("missing", { status: 404 }) },
+    QUIETLENS_ANALYTICS_SINK: { write: async () => {} },
+  });
+
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: { code: "MODEL_NOT_CONFIGURED" } });
+});

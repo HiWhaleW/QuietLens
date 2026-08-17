@@ -7,17 +7,25 @@
     "dev": "vite",
     "build": "vite build && node scripts/prepare-sites-build.mjs",
     "preview": "vite preview",
+    "serve:local": "node --env-file-if-exists=.env.local scripts/serve-local.mjs",
     "test:map": "node --test tests/map-projection.test.mjs",
-    "test:sites": "node --test tests/sites-worker.test.mjs"
+    "test:sites": "node --test tests/sites-worker.test.mjs",
+    "test:evidence": "node --test tests/ai-contracts.test.mjs tests/ai-document-consistency.test.mjs tests/ai-hard-constraints.test.mjs && node scripts/run-phase3b-evidence.mjs",
+    "test:analytics": "node --test tests/ai-analytics.test.mjs",
+    "test:ai-eval": "node --test tests/ai-evaluation.test.mjs && node scripts/run-phase3b-eval.mjs",
+    "test:phase3b": "npm run test:evidence && npm run test:analytics && npm run test:ai-eval",
+    "test:phase3c": "node --test tests/ai-phase3c-core.test.mjs tests/ai-phase3c-api.test.mjs tests/ai-native-removal.test.mjs",
+    "eval:phase3c:high-risk": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs",
+    "eval:phase3c:all": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs --all"
   },
   "dependencies": {
     "@vitejs/plugin-react": "5.0.4",
+    "ajv": "^8.18.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.468.0",
-    "vite": "6.4.2",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "react-leaflet": "^5.0.0"
-  },
-  "devDependencies": {}
+    "react-leaflet": "^5.0.0",
+    "vite": "6.4.2"
+  }
 }

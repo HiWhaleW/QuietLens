@@ -1,5 +1,12 @@
+import { routeAnalyticsRequest } from "./routes/analytics.js";
+import { routeDecisionRequest } from "./routes/decision.js";
+
 export default {
   async fetch(request, env) {
+    const apiResponse = await routeDecisionRequest(request, env)
+      ?? await routeAnalyticsRequest(request, env);
+    if (apiResponse) return apiResponse;
+
     const response = await env.ASSETS.fetch(request);
     const acceptsHtml = request.headers.get("accept")?.includes("text/html");
 

@@ -52,9 +52,11 @@ function toCentralPosition([lat, lng]) {
 }
 
 function markerIcon(cafe) {
+  const markerLabel = cafe.markerLabel ?? cafe.matchScore ?? "";
+  const roleClass = cafe.role ? ` is-${cafe.role}` : " is-context";
   return L.divIcon({
     className: "quiet-marker-host",
-    html: `<span class="quiet-marker" aria-hidden="true"><span>${cafe.matchScore}</span></span>`,
+    html: `<span class="quiet-marker${roleClass}" aria-hidden="true"><span>${markerLabel}</span></span>`,
     iconSize: [46, 46],
     iconAnchor: [23, 23],
   });
@@ -62,10 +64,13 @@ function markerIcon(cafe) {
 
 function sceneIcon(cafe, closing) {
   const arrow = renderToStaticMarkup(<ArrowDownLeft size={34} strokeWidth={1.6} aria-hidden="true" />);
+  const sceneMedia = cafe.scene
+    ? `<img class="cafe-scene-illustration" src="${cafe.scene}" alt="" />`
+    : `<div class="cafe-scene-placeholder"><span>门店水彩图</span><strong>待补充</strong></div>`;
 
   return L.divIcon({
     className: "cafe-scene-host",
-    html: `<div class="cafe-scene ${closing ? "is-closing" : "is-opening"}"><div class="paper-break" aria-hidden="true"><span class="paper-seal"></span><span class="torn-paper torn-paper-top"></span><span class="torn-paper torn-paper-right"></span><span class="torn-paper torn-paper-bottom"></span><span class="torn-paper torn-paper-left"></span><img class="cafe-scene-illustration" src="${cafe.scene}" alt="" /></div><div class="scene-conflict-note"><strong>可能冲突</strong><span>${cafe.conflict}</span><i aria-hidden="true">${arrow}</i></div></div>`,
+    html: `<div class="cafe-scene ${closing ? "is-closing" : "is-opening"}"><div class="paper-break" aria-hidden="true"><span class="paper-seal"></span><span class="torn-paper torn-paper-top"></span><span class="torn-paper torn-paper-right"></span><span class="torn-paper torn-paper-bottom"></span><span class="torn-paper torn-paper-left"></span>${sceneMedia}</div><div class="scene-conflict-note"><strong>可能冲突</strong><span>${cafe.conflict}</span><i aria-hidden="true">${arrow}</i></div></div>`,
     iconSize: [550, 340],
     iconAnchor: [310, 312],
   });
@@ -163,6 +168,7 @@ function CafeMarkers({ cafes, selectedCafe, boardLevel, onBoardLevel, onSelect }
   const overview = useMemo(() => overviewIcon(cafes.length), [cafes.length]);
 
   if (selectedCafe) return null;
+  if (cafes.length === 0) return null;
 
   if (boardLevel < HUANGPU_LEVEL) {
     return (
@@ -176,30 +182,39 @@ function CafeMarkers({ cafes, selectedCafe, boardLevel, onBoardLevel, onSelect }
         eventHandlers={{
           click: (event) => {
             L.DomEvent.stopPropagation(event.originalEvent);
-            onBoardLevel(HUANGPU_LEVEL);
+            onBoardLevel(HUANGPU_LEVEL, "cluster");
           },
         }}
       />
     );
   }
 
-  return cafes.map((cafe) => (
-    <Marker
+  return cafes.map((cafe) => {
+    const markerDescription = cafe.role
+      ? cafe.name
+      : cafe.matchScore === null
+        ? `${cafe.name}，综合参考待补充，可自主查看`
+        : `${cafe.name}，综合参考 ${cafe.matchScore} 分，可自主查看`;
+    return (
+      <Marker
       key={`${cafe.id}-${cafe.matchScore}`}
       position={projectCafeToHuangpu(cafe)}
       icon={markerIcon(cafe)}
       bubblingMouseEvents={false}
-      title={cafe.name}
-      alt={cafe.name}
-      zIndexOffset={cafe.matchScore}
+      title={markerDescription}
+      alt={markerDescription}
+      zIndexOffset={cafe.role ? 300 : 100}
+      opacity={cafe.selectable === false ? 0.45 : 1}
+      interactive={cafe.selectable !== false}
       eventHandlers={{
         click: (event) => {
           L.DomEvent.stopPropagation(event.originalEvent);
-          onSelect(cafe.id);
+          if (cafe.selectable !== false) onSelect(cafe.id);
         },
       }}
     />
-  ));
+    );
+  });
 }
 
 function ClearSelectionOnMapClick({ selectedCafe, onClearSelection }) {
@@ -220,7 +235,7 @@ function BoardControls({ level, onChange }) {
         aria-label="放大至更详细地图"
         title="放大至更详细地图"
         disabled={level === MAP_BOARDS.length - 1}
-        onClick={() => onChange(Math.min(MAP_BOARDS.length - 1, level + 1))}
+        onClick={() => onChange(Math.min(MAP_BOARDS.length - 1, level + 1), "zoom_in")}
       >
         <Plus aria-hidden="true" />
       </button>
@@ -229,7 +244,7 @@ function BoardControls({ level, onChange }) {
         aria-label="缩小至更广域地图"
         title="缩小至更广域地图"
         disabled={level === 0}
-        onClick={() => onChange(Math.max(0, level - 1))}
+        onClick={() => onChange(Math.max(0, level - 1), "zoom_out")}
       >
         <Minus aria-hidden="true" />
       </button>
@@ -270,8 +285,8 @@ export function MapStage({ cafes, region, drawerOpen, selectedCafe, onSelect, on
   const sceneVisible = Boolean(selectedCafe || sceneCafe);
   const activeBoard = MAP_BOARDS[boardLevel];
 
-  function changeBoardLevel(nextLevel) {
-    onRegionChange(MAP_BOARDS[nextLevel].region);
+  function changeBoardLevel(nextLevel, source) {
+    onRegionChange(MAP_BOARDS[nextLevel].region, source);
   }
 
   return (
@@ -302,7 +317,7 @@ export function MapStage({ cafes, region, drawerOpen, selectedCafe, onSelect, on
         />
 
         <Pane name="quietlens-scenes" style={{ zIndex: 450, pointerEvents: "none" }}>
-          {sceneCafe?.scene && sceneCafe?.conflict && (
+          {sceneCafe?.conflict && (
             <SafeSceneMarker cafe={sceneCafe} closing={sceneClosing} drawerOpen={drawerOpen} />
           )}
         </Pane>
