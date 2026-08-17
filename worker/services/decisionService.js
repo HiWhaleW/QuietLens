@@ -273,6 +273,7 @@ export async function recommendForDecisionRequest(env, payload, { workflowStarte
         throw error;
       }
       modelUsages.push(reasoned.usage);
+      verificationRepairCodes.push(...reasoned.normalization_codes);
       verification = verifyAndRenderDecisionDraft({
         draft: reasoned.draft,
         request,

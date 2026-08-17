@@ -705,6 +705,40 @@ test("treats a casual historical-interior request as a medium preference", async
   assert.deepEqual(interpreted.request.soft_preferences, [{ field: "interior", priority: "medium" }]);
 });
 
+test("does not promote an implicit garden preference into a hard constraint", async () => {
+  const runtime = environment();
+  runtime.env.QUIETLENS_MODEL_CLIENT = {
+    async callStructured() {
+      const value = modelPatch();
+      value.scalar_updates = [
+        { field: "task_type", action: "set", value: "conversation", confidence: "high" },
+        { field: "duration_minutes", action: "set", value: 60, confidence: "high" },
+      ];
+      value.hard_constraints = {
+        action: "replace",
+        value: [{ field: "interior", operator: "supports", value: "garden" }],
+        confidence: "high",
+      };
+      value.soft_preferences = { action: "keep", value: [], confidence: "low" };
+      return { value, usage: null, response_id: "mock-implicit-garden" };
+    },
+  };
+
+  const response = await post("/api/decision/interpret", {
+    session_id: "sess-implicit-garden",
+    request_id: "req-implicit-garden",
+    user_text: "下午想找有花园空间的地方和朋友聊一小时。",
+    mode: "initial",
+    page_context: { area: "黄浦区" },
+  }, runtime.env);
+  const interpreted = (await response.json()).data;
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(interpreted.request.hard_constraints, []);
+  assert.deepEqual(interpreted.request.soft_preferences, [{ field: "outdoor_seating", priority: "high" }]);
+  assert.equal(interpreted.versions.intent_normalizer, "explicit-semantic-normalizer-v0.1.5");
+});
+
 test("preserves an explicit conflicting duration instead of shortening it to fit the deadline", async () => {
   const runtime = environment();
   runtime.env.QUIETLENS_MODEL_CLIENT = {
@@ -939,7 +973,7 @@ test("preserves an explicit in-scope neighborhood when the model misses it", asy
 
   assert.equal(response.status, 200);
   assert.equal(interpreted.request.location.area, "外滩");
-  assert.equal(interpreted.versions.intent_normalizer, "explicit-semantic-normalizer-v0.1.4");
+  assert.equal(interpreted.versions.intent_normalizer, "explicit-semantic-normalizer-v0.1.5");
 });
 
 test("does not ask about a generic missing field without a high-impact ambiguity", async () => {
@@ -1504,7 +1538,7 @@ test("refuses a conflicting duration and hard leave time before reasoning", asyn
   assert.equal(modelCalled, false);
 });
 
-test("reports both reasoner calls when verification blocks both drafts", async () => {
+test("normalizes an unsupported model refusal into a grounded comparison", async () => {
   const runtime = environment();
   const request = createEmptyDecisionRequest("req-reasoner-block-count");
   request.task.type = "focus";
@@ -1520,16 +1554,14 @@ test("reports both reasoner calls when verification blocks both drafts", async (
     },
   };
 
-  await assert.rejects(
-    recommendForDecisionRequest(runtime.env, {
-      session_id: "sess-reasoner-block-count",
-      request,
-    }),
-    (error) => {
-      assert.equal(error.code, "EVIDENCE_VERIFICATION_BLOCKED");
-      assert.equal(error.model_calls, 2);
-      assert.deepEqual(error.verification_repair_codes, ["MODEL_REFUSAL_UNSUPPORTED"]);
-      return true;
-    },
-  );
+  const result = await recommendForDecisionRequest(runtime.env, {
+    session_id: "sess-reasoner-block-count",
+    request,
+  });
+
+  assert.equal(result.brief.status, "published");
+  assert.equal(result.brief.candidates.length, 2);
+  assert.ok(result.brief.candidates.every((candidate) => candidate.fit_reasons.length > 0));
+  assert.equal(result.metrics.model_calls, 1);
+  assert.deepEqual(result.metrics.verification_repair_codes, ["MODEL_REFUSAL_NORMALIZED"]);
 });

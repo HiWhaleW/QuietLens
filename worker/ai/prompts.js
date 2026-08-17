@@ -1,5 +1,5 @@
 export const INTENT_PROMPT_VERSION = "intent-v0.4.0";
-export const REASONER_PROMPT_VERSION = "reasoner-v0.4.0";
+export const REASONER_PROMPT_VERSION = "reasoner-v0.4.1";
 
 export const INTENT_INSTRUCTIONS = `You are QuietLens Intent Interpreter.
 Convert the user's Chinese location-decision request into DecisionRequestPatch JSON only.

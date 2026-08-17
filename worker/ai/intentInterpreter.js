@@ -51,7 +51,7 @@ const SOFT_PREFERENCE_SIGNAL = /重要|优先|偏好|希望|最好|想|找|有�
 const EXPLICIT_TIME_CONFLICT_NORMALIZER_VERSION = "explicit-time-conflict-normalizer-v0.1.2";
 const EXPLICIT_CORRECTION_NORMALIZER_VERSION = "explicit-correction-normalizer-v0.1.0";
 const EXPLICIT_UNKNOWN_NORMALIZER_VERSION = "explicit-unknown-normalizer-v0.2.0";
-const EXPLICIT_SEMANTIC_NORMALIZER_VERSION = "explicit-semantic-normalizer-v0.1.4";
+const EXPLICIT_SEMANTIC_NORMALIZER_VERSION = "explicit-semantic-normalizer-v0.1.5";
 const DEFAULT_INTENT_TIMEOUT_MS = 7000;
 const NON_NULLABLE_SCALAR_FIELDS = new Set(["task_type", "location_area"]);
 const CHINESE_NUMBER = {
@@ -236,6 +236,19 @@ function normalizeExplicitPreferences(patch, userText, mode) {
         ? "medium"
         : "high",
     })),
+    confidence: "high",
+  };
+  return { patch, applied: true };
+}
+
+function removeImplicitHardConstraints(patch, userText, mode) {
+  if (mode !== "initial"
+    || hasExplicitHardRequirement(userText)
+    || patch.hard_constraints.action !== "replace"
+    || patch.hard_constraints.value.length === 0) return { patch, applied: false };
+  patch.hard_constraints = {
+    action: "replace",
+    value: [],
     confidence: "high",
   };
   return { patch, applied: true };
@@ -620,6 +633,8 @@ export async function interpretIntent({
         : normalizeSafetyCriticalIntent(expandModelPatch(result.value, requestId, mode), userText);
       const preferenceNormalization = normalizeExplicitPreferences(patch, userText, mode);
       patch = preferenceNormalization.patch;
+      const implicitHardConstraintNormalization = removeImplicitHardConstraints(patch, userText, mode);
+      patch = implicitHardConstraintNormalization.patch;
       const taskNormalization = normalizeExplicitTask(patch, userText, mode);
       patch = taskNormalization.patch;
       const locationNormalization = normalizeExplicitLocation(patch, userText);
@@ -664,7 +679,11 @@ export async function interpretIntent({
             ? EXPLICIT_UNKNOWN_NORMALIZER_VERSION
             : criticalNormalization.applied
               ? EXPLICIT_CRITICAL_NORMALIZER_VERSION
-              : taskNormalization.applied || locationNormalization.applied || preferenceNormalization.applied || nonRequirementNormalization.applied
+              : taskNormalization.applied
+                || locationNormalization.applied
+                || preferenceNormalization.applied
+                || implicitHardConstraintNormalization.applied
+                || nonRequirementNormalization.applied
                 ? EXPLICIT_SEMANTIC_NORMALIZER_VERSION
                 : correctionNormalization.applied || walkNormalization.applied || workspaceNormalization.applied
                   ? EXPLICIT_CORRECTION_NORMALIZER_VERSION

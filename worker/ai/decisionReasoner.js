@@ -139,6 +139,8 @@ export async function reasonAboutCandidates({
     }),
   });
   const evidenceByPlace = new Map(context.candidates.map((candidate) => [candidate.place_id, candidate.evidence]));
+  const comparableCandidates = context.candidates.filter((candidate) => candidate.evidence.length > 0);
+  const normalizeUnsupportedRefusal = result.value.outcome === "refuse" && comparableCandidates.length >= 2;
   function normalizeGroups(groups, placeId) {
     const evidenceById = new Map((evidenceByPlace.get(placeId) ?? []).map((record) => [record.evidence_id, record]));
     const idsByAttribute = new Map();
@@ -158,12 +160,14 @@ export async function reasonAboutCandidates({
     const selected = [];
     const selectedIds = new Set();
     for (const candidate of result.value.candidates ?? []) {
-      if (!evidenceByPlace.has(candidate.place_id) || selectedIds.has(candidate.place_id)) continue;
+      if (!evidenceByPlace.has(candidate.place_id)
+        || evidenceByPlace.get(candidate.place_id).length === 0
+        || selectedIds.has(candidate.place_id)) continue;
       selected.push(candidate);
       selectedIds.add(candidate.place_id);
       if (selected.length === 3) break;
     }
-    if (result.value.outcome === "publish") {
+    if (result.value.outcome === "publish" || normalizeUnsupportedRefusal) {
       const preferenceFields = new Set(request.soft_preferences
         .filter((item) => item.priority === "high")
         .map((item) => item.field));
@@ -192,8 +196,8 @@ export async function reasonAboutCandidates({
         });
         selectedIds.add(directPreferenceCandidate.place_id);
       }
-      const minimum = Math.min(2, context.candidates.length);
-      for (const candidate of context.candidates) {
+      const minimum = Math.min(2, comparableCandidates.length);
+      for (const candidate of comparableCandidates) {
         if (selected.length >= minimum) break;
         if (selectedIds.has(candidate.place_id) || candidate.evidence.length === 0) continue;
         selected.push({
@@ -208,6 +212,8 @@ export async function reasonAboutCandidates({
     const roles = ["primary", "conditional", "alternative"];
     draft = assertContract("DecisionDraft", {
       ...result.value,
+      outcome: normalizeUnsupportedRefusal ? "publish" : result.value.outcome,
+      refusal_reason_code: normalizeUnsupportedRefusal ? null : result.value.refusal_reason_code,
       flow_schema_version: AI_FLOW_SCHEMA_VERSION,
       request_id: request.request_id,
       candidates: selected.map((candidate, index) => {
@@ -237,5 +243,6 @@ export async function reasonAboutCandidates({
     response_id: result.response_id,
     model_version: model,
     prompt_version: REASONER_PROMPT_VERSION,
+    normalization_codes: normalizeUnsupportedRefusal ? ["MODEL_REFUSAL_NORMALIZED"] : [],
   };
 }
