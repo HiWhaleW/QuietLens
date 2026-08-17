@@ -35,7 +35,7 @@ QuietLens turns a natural-language request into a bounded, inspectable place dec
 2. asks at most one question when the missing answer could materially change the result;
 3. filters a controlled place set with deterministic hard constraints;
 4. retrieves only eligible evidence;
-5. returns two or three comparable decision briefs;
+5. returns two or three comparable decision briefs by default, or one confirmed option when a strict hard constraint leaves only one eligible candidate;
 6. shows trade-offs, assumptions, unknowns, confidence, and evidence scope; and
 7. accepts a correction without forcing the user to restart.
 
@@ -63,7 +63,7 @@ AI is necessary for interpreting ambiguous intent, comparing heterogeneous evide
 | Natural-language entry | Describe the situation without translating it into a complex filter form. |
 | Editable intent summary | Inspect and correct the task, arrival time, area, walking limit, and priorities. |
 | One-question maximum | Clarification is used only when it can change the candidate set or first choice. |
-| Two or three decision briefs | Compare a preferred option, a conditional preference, and an alternative without a fake ten-place ranking. |
+| One to three decision briefs | Compare two or three options by default without a fake ten-place ranking; when a strict hard constraint leaves one confirmed option, show that option without padding the result with unknown candidates. |
 | Evidence-backed explanations | Inspect localized decision grounds, verification dates, reliability, and source links without exposing internal model text. |
 | Map-first exploration | Keep all 10 registered cafés selectable without changing the published recommendation order. |
 | Store-specific detail | Open a café to see its role in the current decision and its bounded sensory profile. |
