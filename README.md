@@ -1,127 +1,176 @@
 <p align="center">
-  <img src="media/quietlens-product-preview.png" alt="QuietLens 黄浦咖啡馆感官适配地图" width="1200">
+  <img src="media/quietlens-product-preview.png" alt="QuietLens AI-native decision brief on a watercolor map of Shanghai" width="1200">
 </p>
 
 <h1 align="center">QuietLens</h1>
 
 <p align="center">
-  为感官偏好寻找更合适的城市空间。<br>
-  不再只看热门与总分，而是理解一家咖啡馆在此刻是否适合你。
+  An evidence-backed place decision agent for finding lower-friction work and recovery spaces.<br>
+  It does not ask which café is most popular. It asks which place is less likely to disrupt what you need to do right now.
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/AI--native-decision%20agent-0B57D0?style=flat-square" alt="AI-native decision agent">
   <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=061A2E" alt="React 19">
   <img src="https://img.shields.io/badge/Vite-6-646CFF?style=flat-square&logo=vite&logoColor=white" alt="Vite 6">
-  <img src="https://img.shields.io/badge/Leaflet-1.9-199900?style=flat-square&logo=leaflet&logoColor=white" alt="Leaflet 1.9">
-  <img src="https://img.shields.io/badge/coverage-黄浦区%2010%20家-0B57D0?style=flat-square" alt="黄浦区 10 家咖啡馆">
+  <img src="https://img.shields.io/badge/scope-10%20Huangpu%20cafés-D6A313?style=flat-square" alt="10 controlled Huangpu cafés">
   <img src="https://img.shields.io/badge/license-all%20rights%20reserved-D84A3A?style=flat-square" alt="All rights reserved">
 </p>
 
 <p align="center">
-  <a href="#quietlens-是什么"><strong>产品介绍</strong></a>
+  <a href="#what-quietlens-does"><strong>Product overview</strong></a>
   ·
-  <a href="#本地运行"><strong>本地运行</strong></a>
+  <a href="#run-locally"><strong>Run locally</strong></a>
   ·
-  <a href="https://github.com/HiWhaleW/QuietLens/issues"><strong>反馈问题</strong></a>
+  <a href="https://github.com/HiWhaleW/QuietLens/issues"><strong>Report an issue</strong></a>
 </p>
 
 > [!NOTE]
-> QuietLens 是桌面端作品集原型，当前受控范围为上海黄浦区 10 家咖啡馆。页面展示的是可解释的环境参考，不是实时座位、实时分贝、实时客流或营业状态保证；出发前请通过地图平台核对最新信息。
+> QuietLens is an experimental desktop portfolio prototype. Its current evidence boundary is a controlled set of 10 cafés in Huangpu, Shanghai; it is not comprehensive coverage of Shanghai.
 
 > [!IMPORTANT]
-> **非医疗产品 · 非商业授权。** QuietLens 不进行医学诊断，也不承诺某个地点对所有人都“足够安静”。仓库代码、视觉资产与文档均保留所有权利，使用边界以 [LICENSE](LICENSE) 为准。
+> **Not medical advice and not a real-time availability service.** QuietLens does not diagnose sensory conditions or guarantee current seating, noise, crowd levels, opening hours, or accessibility. Verify time-sensitive details before travelling.
 
-## QuietLens 是什么
+## What QuietLens does
 
-QuietLens 是一个面向感官敏感者、远程工作者和城市独处需求的地点决策原型。用户可以根据当前活动和到店时间，调整对安静、低拥挤、自然光与座位友好的重视程度；系统随之重新计算地点适配度，并把结果放回地图空间中比较。
+QuietLens turns a natural-language request into a bounded, inspectable place decision. A user can describe the task, time, area, walking limit, hard constraints, and sensory preferences in their own words. The system then:
 
-它解决的不是“哪家店最热门”，而是一个更具体的问题：
+1. extracts a visible, editable intent summary;
+2. asks at most one question when the missing answer could materially change the result;
+3. filters a controlled place set with deterministic hard constraints;
+4. retrieves only eligible evidence;
+5. returns two or three comparable decision briefs;
+6. shows trade-offs, assumptions, unknowns, confidence, and evidence scope; and
+7. accepts a correction without forcing the user to restart.
 
-> 在我此刻的任务、时间和感官状态下，哪家店更不容易打断我？
+The product never exposes hidden chain-of-thought. Explanations are limited to concise, verifiable decision grounds.
 
-## 核心体验
-
-| 能力 | 用户价值 |
-| --- | --- |
-| 情境化选择 | 在深度工作、放松休息和轻松聊天之间切换当前任务。 |
-| 四项感官偏好 | 分别调整安静度、低拥挤、自然光和座位友好度。 |
-| 时间与区域上下文 | 根据计划到店时段查看更贴近当下的环境参考。 |
-| 地图优先比较 | 在原创蓝黄水彩地图上直观看到 10 家黄浦候选。 |
-| 可解释地点详情 | 查看适配分、置信度、建议时段、四项参考与证据状态。 |
-| 不确定性可见 | 主动呈现可能冲突和未知项，不把估计包装成事实。 |
-| 水彩场景展开 | 点击地点后，以破纸动效展开基于门店空间特征创作的原创水彩场景。 |
-
-## 产品闭环
+## The AI-native loop
 
 ```text
-选择当前活动 → 调整感官偏好 → 设定区域与时段
-→ 地图重新计算 → 对比候选 → 查看证据、冲突与未知项
+Natural-language request
+→ editable Decision Request
+→ at most one high-value clarification
+→ deterministic hard-constraint filter
+→ controlled evidence retrieval
+→ model-assisted comparison
+→ deterministic verification and rendering
+→ user correction
 ```
 
-适配分由确定性规则计算。同一套输入会得到同一结果，避免用不可解释的生成式输出替代产品判断。
+AI is necessary for interpreting ambiguous intent, comparing heterogeneous evidence, and understanding incremental corrections. It is not the factual source and does not control the safety boundaries.
 
-## 数据与承诺边界
+## Core experience
 
-| QuietLens 会做 | QuietLens 不会做 |
+| Capability | What the user gets |
 | --- | --- |
-| 显示受控门店范围内的编辑参考与证据状态 | 把缺失证据当成条件已经满足 |
-| 将环境差异拆成四个可比较维度 | 声称掌握实时座位、分贝或人流 |
-| 明确提示低置信、冲突和时效风险 | 将感官参考表述为医学或安全保证 |
-| 保留地图、数据与视觉资产的必要来源边界 | 上传本地环境文件、API Key 或研究原始素材 |
+| Natural-language entry | Describe the situation without translating it into a complex filter form. |
+| Editable intent summary | Inspect and correct the task, arrival time, area, walking limit, and priorities. |
+| One-question maximum | Clarification is used only when it can change the candidate set or first choice. |
+| Two or three decision briefs | Compare a preferred option, a conditional preference, and an alternative without a fake ten-place ranking. |
+| Evidence-backed explanations | See fit reasons, trade-offs, confidence, assumptions, source scope, and unresolved facts. |
+| Map-first exploration | Keep all 10 registered cafés selectable without changing the published recommendation order. |
+| Store-specific detail | Open a café to see its role in the current decision and its bounded sensory profile. |
+| Watercolor place reveal | Expand a selected café through an original torn-paper watercolor scene. |
+| Correction loop | Add or revise a condition while preserving the rest of the Decision Request. |
 
-当前版本无需账号、托管数据库或 API Key。仓库的 `.gitignore` 会排除 `.env*`、本地研究目录、构建产物和系统文件；发布前仍应人工检查待提交内容。
+## AI and deterministic responsibilities
 
-## 本地运行
+| Model-assisted | Deterministic |
+| --- | --- |
+| Interpret ambiguous natural language | Validate the Decision Request schema |
+| Identify the most valuable clarification target | Enforce the one-question limit |
+| Compare retrieved evidence across candidates | Apply candidate allowlists and hard constraints |
+| Draft bounded reasons and trade-offs | Verify citation existence and evidence eligibility |
+| Understand an incremental correction | Enforce confidence ceilings and render the final brief |
 
-要求：Node.js 20+ 与 npm。
+Missing evidence is never treated as proof that a condition is satisfied. Reviews, webpages, and user-provided text are untrusted inputs until they pass the evidence pipeline.
+
+## Current evidence boundary
+
+- 10 controlled cafés in Huangpu, Shanghai
+- public, traceable source material organized into atomic evidence records
+- explicit separation between facts, sourced observations, editorial references, conflicts, and unknowns
+- no claim of real-time seating, sound level, crowding, or opening status
+- no open-ended place generation outside the controlled candidate set
+
+The watercolor map and café scenes are product assets, not evidence. Third-party research photographs and private source registries are not included in this repository.
+
+## Run locally
+
+Requirements:
+
+- Node.js 20+
+- npm
+- a server-side DeepSeek API key for the model-backed decision flow
 
 ```bash
 git clone https://github.com/HiWhaleW/QuietLens.git
 cd QuietLens
 npm install
+npm run build
+npm run serve:local
+```
+
+Open `http://127.0.0.1:4173/`.
+
+Store the key only in a local `.env.local` file:
+
+```text
+DEEPSEEK_API_KEY=your_key_here
+```
+
+The key is read by the server-side worker. Never prefix it with `VITE_`, expose it to client code, or commit the environment file.
+
+For interface-only development:
+
+```bash
 npm run dev
 ```
 
-打开终端输出的本地地址即可体验。当前公开版本不需要创建环境变量文件。
+## Architecture
 
-生产构建：
+- React 19 and Vite 6
+- a bounded Intent Interpreter and Decision Reasoner
+- deterministic request validation, hard-constraint filtering, evidence verification, and rendering
+- server-side model calls through a Responses API adapter
+- versioned, privacy-minimized analytics that exclude raw requests, precise personal locations, and hidden reasoning
+- three discrete watercolor map boards: Shanghai overview, central city, and Huangpu detail
+- desktop-first interface with a restrained notice below 1180 px
+- reduced-motion support for the torn-paper café reveal
 
-```bash
-npm run build
-npm run preview
-```
-
-## 技术实现
-
-- React 19 + Vite 6
-- React Leaflet + Leaflet 地图交互
-- 三层离散水彩地图：上海总览、中心城区、黄浦街区
-- 本地原创地图与门店水彩资产，不依赖第三方在线底图样式
-- 确定性适配计算、时段修正与门店坐标投影
-- 日间 / 夜间显示模式与 `prefers-reduced-motion` 动效降级
-- 桌面优先，当前最小体验宽度为 1180px
-
-## 项目结构
+## Repository layout
 
 ```text
-src/                 产品界面、地图与适配逻辑
-public/assets/map/   三层水彩地图
-public/assets/cafes/ 原创门店水彩场景
-tests/               地图投影与托管回归测试
-worker/              静态托管入口
-media/               README 公开展示素材
+src/ai-native/       contracts, retrieval, verification, state, and AI-native UI
+worker/              server-side decision routes, model adapters, and analytics
+public/assets/map/   original watercolor map boards
+public/assets/cafes/ original watercolor café scenes
+tests/               contract, safety, evaluation, analytics, and hosting checks
+media/               public README assets
 ```
 
-## 验证
+## Validation
 
 ```bash
-npm run test:map
+npm run test:phase3c
+npm run test:phase3b
+npm run test:analytics
 npm run test:sites
 npm run build
 ```
+
+Live-model evaluation requires a local API key and is intentionally separate from deterministic regression tests.
+
+## Privacy and security
+
+- Environment files, local research, internal documentation, generated evaluation reports, and build output are excluded from Git.
+- Raw natural-language requests, exact personal locations, hidden reasoning, and API credentials must not be logged.
+- Model output cannot bypass the place allowlist, evidence eligibility rules, citation checks, or hard constraints.
+- The public repository contains no private API key or local machine path.
 
 ## License
 
 Copyright © 2026 QuietLens. All rights reserved.
 
-公开可见不代表授予复制、修改、分发或商业使用许可。完整条款见 [LICENSE](LICENSE)。
+Public availability does not grant permission to copy, modify, distribute, sublicense, or use this project commercially. See [LICENSE](LICENSE) for the complete terms.
