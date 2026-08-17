@@ -134,9 +134,22 @@ function groundedUnknownAttributes(candidate, retrieved, request, store) {
 }
 
 function refusalBrief(request, reasonCode, versions, retrieval) {
-  const blocking = retrieval.rejected.flatMap((entry) => (
-    entry.results.filter((result) => result.status === "fail").map((result) => result.constraint_id)
-  ));
+  const constraintById = new Map(request.hard_constraints.map((constraint) => [constraint.constraint_id, constraint]));
+  const blockingResults = [
+    ...retrieval.rejected.flatMap((entry) => entry.results ?? []),
+    ...retrieval.candidates.flatMap((entry) => entry.hard_constraint_results ?? []),
+  ].filter((result) => ["fail", "unknown"].includes(result.status));
+  const blocking = reasonCode === "time_window_conflict"
+    ? ["time_window"]
+    : reasonCode === "hard_constraints_no_result"
+      ? [...new Set(blockingResults.map((result) => result.constraint_id))]
+      : [];
+  const relaxableFields = reasonCode === "hard_constraints_no_result"
+    ? [...new Set(blocking.flatMap((constraintId) => {
+        const field = constraintById.get(constraintId)?.field;
+        return field ? [field] : [];
+      }))]
+    : [];
   return {
     flow_schema_version: AI_FLOW_SCHEMA_VERSION,
     request_id: request.request_id,
@@ -146,8 +159,8 @@ function refusalBrief(request, reasonCode, versions, retrieval) {
     candidates: [],
     refusal: {
       reason_code: reasonCode,
-      blocking_constraints: [...new Set(blocking)],
-      relaxable_fields: [...new Set(request.hard_constraints.map((constraint) => constraint.field))],
+      blocking_constraints: blocking,
+      relaxable_fields: relaxableFields,
     },
     versions,
   };
@@ -217,8 +230,18 @@ export function verifyAndRenderDecisionDraft({ draft, request, retrieval, store,
     }
 
     const retrievedIds = new Set(retrieved.evidence.map((record) => record.evidence_id));
+    const citedTradeoffIds = new Set(candidate.tradeoff_evidence_groups.flatMap((group) => group.evidence_ids));
     for (const group of [...candidate.fit_evidence_groups, ...candidate.tradeoff_evidence_groups]) {
       verifyGroup(group, candidate, evidenceById, retrievedIds, issues);
+    }
+    for (const counterEvidence of retrieved.evidence.filter((record) => (
+      ["documented", "unresolved"].includes(record.conflict_status)
+      && record.publishability !== "not_factual"
+      && record.epistemic_status !== "model_inference"
+    ))) {
+      if (!citedTradeoffIds.has(counterEvidence.evidence_id)) {
+        issues.push({ code: "COUNTER_EVIDENCE_OMITTED", detail: counterEvidence.evidence_id });
+      }
     }
     if (candidate.fit_evidence_groups.length === 0) {
       issues.push({ code: "FIT_REASON_MISSING", detail: candidate.place_id });

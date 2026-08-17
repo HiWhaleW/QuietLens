@@ -1,6 +1,6 @@
 {
   "name": "quietlens",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,8 +15,13 @@
     "test:ai-eval": "node --test tests/ai-evaluation.test.mjs && node scripts/run-phase3b-eval.mjs",
     "test:phase3b": "npm run test:evidence && npm run test:analytics && npm run test:ai-eval",
     "test:phase3c": "node --test tests/ai-phase3c-core.test.mjs tests/ai-phase3c-api.test.mjs tests/ai-native-removal.test.mjs",
+    "test:phase3d": "npm run test:phase3b && npm run test:phase3c && node --test tests/ai-phase3d.test.mjs && npm run test:sites && npm run test:map",
     "eval:phase3c:high-risk": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs",
-    "eval:phase3c:all": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs --all"
+    "eval:phase3c:all": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs --all",
+    "eval:phase3d:high-risk": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs --phase3d",
+    "eval:phase3d:all": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs --phase3d --all",
+    "check:phase3d": "node scripts/check-phase3d-regression.mjs",
+    "gate:phase3d": "npm run test:phase3d && npm run build && npm run check:phase3d"
   },
   "dependencies": {
     "@vitejs/plugin-react": "5.0.4",

@@ -104,6 +104,8 @@ const ERROR_COPY = {
   MODEL_NOT_CONFIGURED: "AI 决策服务尚未配置，当前不会使用固定评分伪装推荐。",
   MODEL_TIMEOUT: "意图或决策模型响应超时，你的结构化条件仍然保留。",
   MODEL_UPSTREAM_ERROR: "AI 决策服务暂时不可用，请稍后重试。",
+  MODEL_NETWORK_ERROR: "AI 决策服务网络暂时不可用，你的结构化条件仍然保留。",
+  EVIDENCE_UNAVAILABLE: "证据服务暂时不可核对，因此本次没有发布候选。",
   EVIDENCE_VERIFICATION_BLOCKED: "本次草稿没有通过证据校验，因此没有发布候选。",
   UNTRUSTED_INSTRUCTION_BLOCKED: "输入包含要求绕过证据、权限或隐私边界的指令，本次请求已阻止。",
 };

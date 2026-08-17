@@ -57,6 +57,16 @@ function publicPlace(place) {
   };
 }
 
+function safePublicSourceUrl(value) {
+  try {
+    const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || !url.hostname) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
 export function isAreaWithinScope(area) {
   if (typeof area !== "string" || !area.trim()) return false;
   return HUANGPU_AREA_MARKERS.some((marker) => area.includes(marker));
@@ -138,7 +148,6 @@ export function buildPublicDecisionContext(brief, store, retrieval = null) {
         evidence_id: record.evidence_id,
         place_id: record.place_id,
         attribute: record.attribute,
-        claim_text: record.claim_text,
         verified_at: record.verified_at,
         freshness: record.freshness,
         reliability: record.reliability,
@@ -152,7 +161,7 @@ export function buildPublicDecisionContext(brief, store, retrieval = null) {
         source_type: source.source_type,
         publisher: source.publisher,
         title: source.title,
-        url: source.url.startsWith("http") ? source.url : null,
+        url: safePublicSourceUrl(source.url),
         published_at: source.published_at,
         accessed_at: source.accessed_at,
       })),

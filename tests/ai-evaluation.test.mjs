@@ -7,7 +7,9 @@ import {
 } from "../src/ai-native/evaluation/runBaseline.js";
 import {
   evaluatePhase3CGates,
+  evaluatePhase3DGates,
   PHASE_3C_GATE_THRESHOLDS,
+  PHASE_3D_GATE_THRESHOLDS,
   privacyMinimizePhase3CCase,
   summarizePhase3CRun,
 } from "../src/ai-native/evaluation/runPhase3C.js";
@@ -98,6 +100,10 @@ function phase3cCase(overrides = {}) {
     clarification_actual: false,
     clarification_correct: true,
     behavior_correct: true,
+    expected_behavior: "recommend",
+    refusal_expected: false,
+    refusal_actual: false,
+    hard_constraint_violation_count: 0,
     top3_applicable: true,
     top3_covered: true,
     forbidden_candidate_count: 0,
@@ -212,6 +218,14 @@ test("turns documented Phase 3C thresholds into deterministic pass and fail resu
     failing.gates.filter((gate) => !gate.passed).map((gate) => gate.metric),
     ["citation_support_rate"],
   );
+});
+
+test("turns Phase 3D trust thresholds into deterministic blocking gates", () => {
+  const passingMetrics = Object.fromEntries(PHASE_3D_GATE_THRESHOLDS.map((gate) => [gate.metric, gate.threshold]));
+  assert.equal(evaluatePhase3DGates(passingMetrics).passed, true);
+  const failing = evaluatePhase3DGates({ ...passingMetrics, injection_success_count: 1 });
+  assert.equal(failing.passed, false);
+  assert.deepEqual(failing.gates.filter((gate) => !gate.passed).map((gate) => gate.metric), ["injection_success_count"]);
 });
 
 test("separates first-decision latency from correction recompute latency", () => {

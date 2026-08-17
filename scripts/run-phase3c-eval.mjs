@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 
 import {
   evaluatePhase3CGates,
+  evaluatePhase3DGates,
   privacyMinimizePhase3CCase,
   scorePhase3CCase,
   summarizePhase3CRun,
@@ -15,10 +16,12 @@ import {
   recommendForDecisionRequest,
 } from "../worker/services/decisionService.js";
 import { isHeaderSafeApiKey } from "../worker/ai/deepseekResponsesClient.js";
+import { buildPhase3DFingerprint } from "./phase3d-fingerprint.mjs";
 
 const evidenceRoot = new URL("../docs/phase-3b/evidence/v0.1/", import.meta.url);
 const evaluationRoot = new URL("../docs/phase-3b/evaluation/v0.1/", import.meta.url);
-const outputRoot = new URL("../docs/phase-3c/evaluation-runs/", import.meta.url);
+const phase3d = process.argv.includes("--phase3d");
+const outputRoot = new URL(phase3d ? "../docs/phase-3d/evaluation-runs/" : "../docs/phase-3c/evaluation-runs/", import.meta.url);
 const execFileAsync = promisify(execFile);
 
 async function readJson(name, root) {
@@ -26,7 +29,7 @@ async function readJson(name, root) {
 }
 
 if (!process.env.DEEPSEEK_API_KEY) {
-  console.error("DEEPSEEK_API_KEY is required for the live Phase 3C evaluation; no synthetic pass result was generated.");
+  console.error(`DEEPSEEK_API_KEY is required for the live Phase ${phase3d ? "3D" : "3C"} evaluation; no synthetic pass result was generated.`);
   process.exit(2);
 }
 if (!isHeaderSafeApiKey(process.env.DEEPSEEK_API_KEY)) {
@@ -68,7 +71,7 @@ const implementation = buildEvaluationRunMetadata({
   packageVersion: packageJson.version,
 });
 if (implementation.worktree_dirty && !selectedCaseId && !process.argv.includes("--allow-dirty")) {
-  console.error("Phase 3C gate evaluation requires a clean Git worktree; commit the implementation or use --allow-dirty for non-gating diagnostics.");
+  console.error(`Phase ${phase3d ? "3D" : "3C"} gate evaluation requires a clean Git worktree; commit the implementation or use --allow-dirty for non-gating diagnostics.`);
   process.exit(2);
 }
 const events = [];
@@ -202,8 +205,9 @@ for (const evaluationCase of selectedCases) {
 }
 
 const metrics = summarizePhase3CRun(results);
-const gateResult = evaluatePhase3CGates(metrics);
+const gateResult = phase3d ? evaluatePhase3DGates(metrics) : evaluatePhase3CGates(metrics);
 const report = {
+  phase: phase3d ? "3D" : "3C",
   run_at: new Date().toISOString(),
   subset: selectedCaseId ?? (highRiskOnly ? "high-risk-30" : "all-100"),
   evaluation_set_version: evaluationManifest.evaluation_set_version,
@@ -211,6 +215,7 @@ const report = {
   intent_model: env.QL_INTENT_MODEL,
   reasoning_model: env.QL_REASONING_MODEL,
   implementation,
+  regression_fingerprint: phase3d ? await buildPhase3DFingerprint() : null,
   passed: gateResult.passed,
   gates: gateResult.gates,
   metrics,
@@ -218,9 +223,9 @@ const report = {
 };
 await mkdir(outputRoot, { recursive: true });
 const reportLabel = selectedCaseId ?? (highRiskOnly ? "high-risk" : "all");
-const file = new URL(`phase3c-${reportLabel}-${Date.now()}.json`, outputRoot);
+const file = new URL(`${phase3d ? "phase3d" : "phase3c"}-${reportLabel}-${Date.now()}.json`, outputRoot);
 await writeFile(file, `${JSON.stringify(report, null, 2)}\n`);
 console.log(JSON.stringify(metrics, null, 2));
-console.log(`Phase 3C automated gates: ${gateResult.passed ? "PASS" : "FAIL"}`);
+console.log(`Phase ${phase3d ? "3D" : "3C"} automated gates: ${gateResult.passed ? "PASS" : "FAIL"}`);
 console.log(`Saved privacy-minimized evaluation report to ${file.pathname}`);
 if (!gateResult.passed) process.exitCode = 1;

@@ -1206,7 +1206,7 @@ test("emits a retrieval failure before any reasoning call when the evidence stor
     request: interpreted.request,
   }, runtime.env);
 
-  assert.equal(response.status, 500);
+  assert.equal(response.status, 503);
   assert.ok(runtime.events.some((event) => (
     event.event_name === "retrieval_failed"
       && event.error_code === "RETRIEVAL_FAILED"

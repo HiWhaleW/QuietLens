@@ -5,6 +5,7 @@ import {
   recommendForDecisionRequest,
 } from "../services/decisionService.js";
 import { jsonResponse, readJson, sameOriginAllowed } from "./http.js";
+import { emitOperationalEvent } from "../observability/runtime.js";
 
 const ROUTES = {
   "/api/decision/interpret": interpretDecisionRequest,
@@ -31,7 +32,13 @@ export async function routeDecisionRequest(request, env) {
     const mapped = error.status
       ? { code: error.message, status: error.status }
       : publicServiceError(error);
+    await emitOperationalEvent(env, {
+      severity: mapped.status >= 500 ? "error" : "warn",
+      code: mapped.code,
+      requestId: null,
+      route: new URL(request.url).pathname,
+      status: mapped.status,
+    });
     return jsonResponse({ error: { code: mapped.code } }, mapped.status);
   }
 }
-

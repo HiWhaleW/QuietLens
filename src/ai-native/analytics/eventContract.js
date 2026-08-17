@@ -41,6 +41,7 @@ export const EVENT_DEFINITIONS = Object.freeze({
   evidence_verification_succeeded: ["claim_count", "citation_count"],
   evidence_verification_blocked: ["claim_count", "citation_count", "blocking_error_code"],
   decision_published: ["candidate_count", "unknown_count", "total_duration_ms"],
+  decision_refused: ["refusal_type", "hard_constraint_count", "relaxable_field_count", "total_duration_ms"],
   place_detail_opened: ["place_id", "source"],
   store_profile_viewed: ["place_id", "recommendation_status", "profile_version"],
   place_detail_closed: ["place_id", "close_source", "request_preserved"],

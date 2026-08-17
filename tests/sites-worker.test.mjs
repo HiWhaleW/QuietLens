@@ -57,7 +57,7 @@ test("does not turn missing API or write requests into the app shell", async () 
     });
 
     assert.equal(response.status, 404);
-    assert.equal(calls, 1);
+    assert.equal(calls, new URL(request.url).pathname.startsWith("/api/") ? 0 : 1);
   }
 });
 

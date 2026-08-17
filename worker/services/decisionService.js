@@ -20,6 +20,7 @@ import { interpretIntent } from "../ai/intentInterpreter.js";
 import { reasonAboutCandidates } from "../ai/decisionReasoner.js";
 import { INTENT_PROMPT_VERSION, REASONER_PROMPT_VERSION } from "../ai/prompts.js";
 import { analyticsEvent, emitAnalyticsEvent } from "../analytics/telemetry.js";
+import { emitOperationalEvent } from "../observability/runtime.js";
 
 const DEFAULT_INTENT_MODEL = "deepseek-v4-flash";
 const DEFAULT_REASONING_MODEL = "deepseek-v4-flash";
@@ -52,7 +53,75 @@ function evidenceStore(env) {
 }
 
 async function record(env, input) {
-  await emitAnalyticsEvent(env, analyticsEvent(input));
+  try {
+    await emitAnalyticsEvent(env, analyticsEvent(input));
+    return true;
+  } catch {
+    await emitOperationalEvent(env, {
+      severity: "error",
+      code: "ANALYTICS_DELIVERY_FAILED",
+      requestId: input.requestId,
+    });
+    return false;
+  }
+}
+
+function citationCount(brief) {
+  return brief.candidates.reduce((count, candidate) => (
+    count + candidate.fit_reasons.reduce((sum, reason) => sum + reason.evidence_ids.length, 0)
+      + candidate.tradeoffs.reduce((sum, reason) => sum + reason.evidence_ids.length, 0)
+  ), 0);
+}
+
+function publishedResult({ brief, store, retrieval, verification, metrics }) {
+  const context = buildPublicDecisionContext(brief, store, retrieval);
+  return { brief, context, verification, metrics };
+}
+
+async function recordPublished(env, payload, result, workflowStartedAt) {
+  const { brief } = result;
+  const modelVersion = brief.versions.model;
+  const promptVersion = brief.versions.prompt;
+  await record(env, {
+    eventName: "evidence_verification_succeeded",
+    sessionId: payload.session_id,
+    requestId: brief.request_id,
+    stage: "F4",
+    modelVersion,
+    promptVersion,
+    properties: { claim_count: brief.candidates.length, citation_count: citationCount(brief) },
+  });
+  await record(env, {
+    eventName: "decision_published",
+    sessionId: payload.session_id,
+    requestId: brief.request_id,
+    stage: "F4",
+    modelVersion,
+    promptVersion,
+    properties: {
+      candidate_count: brief.candidates.length,
+      unknown_count: new Set(brief.candidates.flatMap((candidate) => candidate.unknowns)).size,
+      total_duration_ms: elapsedMs(workflowStartedAt),
+    },
+  });
+}
+
+async function recordRefused(env, payload, result, workflowStartedAt) {
+  const { brief } = result;
+  await record(env, {
+    eventName: "decision_refused",
+    sessionId: payload.session_id,
+    requestId: brief.request_id,
+    stage: "F7",
+    modelVersion: brief.versions.model,
+    promptVersion: brief.versions.prompt,
+    properties: {
+      refusal_type: brief.refusal.reason_code,
+      hard_constraint_count: brief.request.hard_constraints.length,
+      relaxable_field_count: brief.refusal.relaxable_fields.length,
+      total_duration_ms: elapsedMs(workflowStartedAt),
+    },
+  });
 }
 
 export async function interpretDecisionRequest(env, payload) {
@@ -173,6 +242,7 @@ export async function recommendForDecisionRequest(env, payload, { workflowStarte
       errorCode: error.code ?? "RETRIEVAL_FAILED",
       properties: { duration_ms: elapsedMs(retrievalStarted) },
     });
+    error.code = "EVIDENCE_UNAVAILABLE";
     throw error;
   }
 
@@ -193,44 +263,29 @@ export async function recommendForDecisionRequest(env, payload, { workflowStarte
       modelVersion: "not-invoked",
       promptVersion: "deterministic-refusal-v0.1.0",
     });
-    return { brief, context: buildPublicDecisionContext(brief, store, retrieval), verification: { valid: true, issues: [] } };
+    const result = publishedResult({
+      brief,
+      store,
+      retrieval,
+      verification: { valid: true, issues: [] },
+      metrics: { model_calls: 0, usage: [], verification_repair_codes: [] },
+    });
+    await recordRefused(env, payload, result, workflowStartedAt);
+    return result;
   }
 
   if (eligibleCandidateCount === 1) {
     const verification = renderDeterministicSingleCandidate({ request, retrieval, store });
     const brief = verification.brief;
-    const citationCount = brief.candidates[0].fit_reasons.reduce(
-      (count, reason) => count + reason.evidence_ids.length,
-      0,
-    );
-    await record(env, {
-      eventName: "evidence_verification_succeeded",
-      sessionId: payload.session_id,
-      requestId: request.request_id,
-      stage: "F4",
-      modelVersion: "not-invoked",
-      promptVersion: "deterministic-single-candidate-v0.1.0",
-      properties: { claim_count: 1, citation_count: citationCount },
-    });
-    await record(env, {
-      eventName: "decision_published",
-      sessionId: payload.session_id,
-      requestId: request.request_id,
-      stage: "F4",
-      modelVersion: "not-invoked",
-      promptVersion: "deterministic-single-candidate-v0.1.0",
-      properties: {
-        candidate_count: 1,
-        unknown_count: new Set(brief.candidates[0].unknowns).size,
-        total_duration_ms: elapsedMs(workflowStartedAt),
-      },
-    });
-    return {
+    const result = publishedResult({
       brief,
-      context: buildPublicDecisionContext(brief, store, retrieval),
+      store,
+      retrieval,
       verification,
       metrics: { model_calls: 0, usage: [], verification_repair_codes: [] },
-    };
+    });
+    await recordPublished(env, payload, result, workflowStartedAt);
+    return result;
   }
 
   const reasoningStarted = Date.now();
@@ -325,10 +380,6 @@ export async function recommendForDecisionRequest(env, payload, { workflowStarte
   }
 
   const brief = verification.brief;
-  const citationCount = brief.candidates.reduce((count, candidate) => (
-    count + candidate.fit_reasons.reduce((sum, reason) => sum + reason.evidence_ids.length, 0)
-      + candidate.tradeoffs.reduce((sum, reason) => sum + reason.evidence_ids.length, 0)
-  ), 0);
   await record(env, {
     eventName: "decision_reasoning_succeeded",
     sessionId: payload.session_id,
@@ -338,40 +389,19 @@ export async function recommendForDecisionRequest(env, payload, { workflowStarte
     promptVersion: REASONER_PROMPT_VERSION,
     properties: { candidate_count: brief.candidates.length, duration_ms: elapsedMs(reasoningStarted) },
   });
-  await record(env, {
-    eventName: "evidence_verification_succeeded",
-    sessionId: payload.session_id,
-    requestId: request.request_id,
-    stage: "F4",
-    modelVersion: reasoningModel,
-    promptVersion: REASONER_PROMPT_VERSION,
-    properties: { claim_count: brief.candidates.length, citation_count: citationCount },
-  });
-  const context = buildPublicDecisionContext(brief, store, retrieval);
-  const unknownCount = new Set(brief.candidates.flatMap((candidate) => candidate.unknowns)).size;
-  await record(env, {
-    eventName: "decision_published",
-    sessionId: payload.session_id,
-    requestId: request.request_id,
-    stage: "F4",
-    modelVersion: reasoningModel,
-    promptVersion: REASONER_PROMPT_VERSION,
-    properties: {
-      candidate_count: brief.candidates.length,
-      unknown_count: unknownCount,
-      total_duration_ms: elapsedMs(workflowStartedAt),
-    },
-  });
-  return {
+  const result = publishedResult({
     brief,
-    context,
+    store,
+    retrieval,
     verification,
     metrics: {
       model_calls: reasoningModelCalls,
       usage: modelUsages,
       verification_repair_codes: [...new Set(verificationRepairCodes)],
     },
-  };
+  });
+  await recordPublished(env, payload, result, workflowStartedAt);
+  return result;
 }
 
 export async function correctAndRecommend(env, payload) {
@@ -404,6 +434,7 @@ export function publicServiceError(error) {
   if (["INPUT_EMPTY", "INPUT_TOO_LONG", "INPUT_TYPE_INVALID"].includes(code)) return { code, status: 400 };
   if (code === "UNTRUSTED_INSTRUCTION_BLOCKED") return { code, status: 422 };
   if (code === "EVIDENCE_VERIFICATION_BLOCKED") return { code, status: 422 };
+  if (code === "EVIDENCE_UNAVAILABLE") return { code, status: 503 };
   if (String(code).includes("validation") || String(code).includes("SCHEMA")) return { code: "REQUEST_SCHEMA_INVALID", status: 400 };
   return { code: "INTERNAL_ERROR", status: 500 };
 }

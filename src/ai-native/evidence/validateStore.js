@@ -97,7 +97,10 @@ export function validateEvidenceStore(store) {
 
   for (const source of sources) {
     try {
-      new URL(source.url);
+      const url = new URL(source.url);
+      if (!["http:", "https:", "urn:"].includes(url.protocol) || url.username || url.password) {
+        addIssue(issues, "SOURCE_URL_NOT_ALLOWED", source.source_id, source.url);
+      }
     } catch {
       addIssue(issues, "SOURCE_URL_INVALID", source.source_id, source.url);
     }

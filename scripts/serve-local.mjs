@@ -62,6 +62,10 @@ const server = createServer(async (incoming, outgoing) => {
       DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
       QL_INTENT_MODEL: process.env.QL_INTENT_MODEL,
       QL_REASONING_MODEL: process.env.QL_REASONING_MODEL,
+      QL_INTENT_TIMEOUT_MS: process.env.QL_INTENT_TIMEOUT_MS,
+      QL_REASONING_TIMEOUT_MS: process.env.QL_REASONING_TIMEOUT_MS,
+      QL_RATE_LIMIT_MAX: process.env.QL_RATE_LIMIT_MAX,
+      QL_RATE_LIMIT_WINDOW_MS: process.env.QL_RATE_LIMIT_WINDOW_MS,
     });
     outgoing.writeHead(response.status, Object.fromEntries(response.headers));
     outgoing.end(Buffer.from(await response.arrayBuffer()));

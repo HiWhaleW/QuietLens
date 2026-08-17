@@ -218,6 +218,15 @@ export async function reasonAboutCandidates({
       request_id: request.request_id,
       candidates: selected.map((candidate, index) => {
         const fitGroups = normalizeGroups(candidate.fit_evidence_groups, candidate.place_id);
+        const tradeoffGroups = normalizeGroups(candidate.tradeoff_evidence_groups, candidate.place_id);
+        const tradeoffIds = new Set(tradeoffGroups.flatMap((group) => group.evidence_ids));
+        for (const evidence of evidenceByPlace.get(candidate.place_id) ?? []) {
+          if (!["documented", "unresolved"].includes(evidence.conflict_status) || tradeoffIds.has(evidence.evidence_id)) continue;
+          const group = tradeoffGroups.find((item) => item.attribute === evidence.attribute);
+          if (group) group.evidence_ids.push(evidence.evidence_id);
+          else tradeoffGroups.push({ attribute: evidence.attribute, evidence_ids: [evidence.evidence_id] });
+          tradeoffIds.add(evidence.evidence_id);
+        }
         const fallbackEvidence = evidenceByPlace.get(candidate.place_id)?.[0];
         return {
           ...candidate,
@@ -227,7 +236,7 @@ export async function reasonAboutCandidates({
             : fallbackEvidence
               ? [{ attribute: fallbackEvidence.attribute, evidence_ids: [fallbackEvidence.evidence_id] }]
               : [],
-          tradeoff_evidence_groups: normalizeGroups(candidate.tradeoff_evidence_groups, candidate.place_id),
+          tradeoff_evidence_groups: tradeoffGroups,
           unknown_attributes: [],
           assumption_refs: request.assumptions,
         };
