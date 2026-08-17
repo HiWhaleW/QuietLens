@@ -17,3 +17,9 @@ test("the main decision flow requires both interpreter and reasoner model roles"
   assert.match(service, /createDeepSeekResponsesClient\(/);
   assert.match(service, /MODEL_NOT_CONFIGURED/);
 });
+
+test("the header omits the duplicated global menu", () => {
+  assert.doesNotMatch(ui, /打开全局菜单|ai-header-menu|header_menu_opened|header_menu_action_selected/);
+  assert.match(ui, /日间模式/);
+  assert.match(ui, /数据与方法/);
+});

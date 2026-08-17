@@ -12,7 +12,6 @@ import {
   ExternalLink,
   LoaderCircle,
   MapPin,
-  Menu,
   MessageCircleMore,
   MessageSquareText,
   Moon,
@@ -159,45 +158,11 @@ function Header({
   onTheme,
   onMethod,
   onReset,
-  onMapOverview,
-  onMenuOpened,
-  onMenuAction,
   hasDecision,
   area,
   arrivalAt,
 }) {
   const ThemeIcon = theme === "light" ? SunMedium : Moon;
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef(null);
-
-  useEffect(() => {
-    if (!menuOpen) return undefined;
-    function closeOnOutsidePointer(event) {
-      if (!menuRef.current?.contains(event.target)) setMenuOpen(false);
-    }
-    function closeOnEscape(event) {
-      if (event.key === "Escape") setMenuOpen(false);
-    }
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointer);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [menuOpen]);
-
-  function toggleMenu() {
-    setMenuOpen((open) => {
-      if (!open) onMenuOpened();
-      return !open;
-    });
-  }
-
-  function runMenuAction(actionCode, action) {
-    onMenuAction(actionCode);
-    setMenuOpen(false);
-    action();
-  }
 
   return (
     <header className="ai-topbar">
@@ -214,17 +179,6 @@ function Header({
         {hasDecision && <button type="button" onClick={onReset}><RotateCcw aria-hidden="true" />新决定</button>}
         <button type="button" onClick={onTheme} title="切换显示模式"><ThemeIcon aria-hidden="true" />{theme === "light" ? "日间模式" : "夜间模式"}</button>
         <button type="button" onClick={() => onMethod("header")}><Database aria-hidden="true" />数据与方法</button>
-        <div className="ai-menu-wrap" ref={menuRef}>
-          <button className="ai-menu-trigger" type="button" aria-label="打开全局菜单" title="菜单" aria-expanded={menuOpen} aria-controls="ai-header-menu" onClick={toggleMenu}><Menu aria-hidden="true" /></button>
-          {menuOpen && (
-            <div id="ai-header-menu" className="ai-header-menu" role="menu" aria-label="全局菜单">
-              <button type="button" role="menuitem" onClick={() => runMenuAction("start_new_decision", onReset)}><RotateCcw aria-hidden="true" /><span>开始新决定</span></button>
-              <button type="button" role="menuitem" onClick={() => runMenuAction("view_shanghai_overview", onMapOverview)}><MapPin aria-hidden="true" /><span>查看上海全域</span></button>
-              <button type="button" role="menuitem" onClick={() => runMenuAction("toggle_display_mode", onTheme)}><ThemeIcon aria-hidden="true" /><span>切换{theme === "light" ? "夜间" : "日间"}模式</span></button>
-              <button type="button" role="menuitem" onClick={() => runMenuAction("open_data_method", () => onMethod("header_menu"))}><Database aria-hidden="true" /><span>数据与方法</span></button>
-            </div>
-          )}
-        </div>
       </nav>
     </header>
   );
@@ -781,9 +735,6 @@ export function QuietLensDecisionApp() {
           onTheme={() => setTheme((value) => value === "light" ? "dark" : "light")}
           onMethod={openMethod}
           onReset={reset}
-          onMapOverview={() => changeMapRegion("shanghai", "menu")}
-          onMenuOpened={() => emit("header_menu_opened", state.stage, { page_state: state.stage.toLowerCase() })}
-          onMenuAction={(actionCode) => emit("header_menu_action_selected", state.stage, { action_code: actionCode })}
           hasDecision={state.stage !== "F0"}
           area={headerArea}
           arrivalAt={state.request?.time.arrival_at}

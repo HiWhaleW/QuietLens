@@ -14,8 +14,6 @@ export const EVENT_DEFINITIONS = Object.freeze({
   exploration_marker_viewed: ["place_id", "score_bucket", "eligibility"],
   exploration_place_selected: ["place_id", "score_bucket", "eligibility", "source"],
   map_board_changed: ["from_region", "to_region", "source"],
-  header_menu_opened: ["page_state"],
-  header_menu_action_selected: ["action_code"],
   decision_summary_viewed: ["claim_count", "unknown_count"],
   assumption_viewed: ["assumption_type"],
   unknowns_viewed: ["unknown_types"],

@@ -65,8 +65,6 @@ test("keeps server decision lifecycle events explicit in the versioned contract"
   assert.deepEqual(EVENT_DEFINITIONS.exploration_marker_viewed, ["place_id", "score_bucket", "eligibility"]);
   assert.deepEqual(EVENT_DEFINITIONS.exploration_place_selected, ["place_id", "score_bucket", "eligibility", "source"]);
   assert.deepEqual(EVENT_DEFINITIONS.map_board_changed, ["from_region", "to_region", "source"]);
-  assert.deepEqual(EVENT_DEFINITIONS.header_menu_opened, ["page_state"]);
-  assert.deepEqual(EVENT_DEFINITIONS.header_menu_action_selected, ["action_code"]);
   assert.deepEqual(EVENT_DEFINITIONS.store_profile_viewed, ["place_id", "recommendation_status", "profile_version"]);
 });
 
