@@ -11,6 +11,7 @@ import {
   privacyMinimizePhase3CCase,
   summarizePhase3CRun,
 } from "../src/ai-native/evaluation/runPhase3C.js";
+import { buildEvaluationRunMetadata } from "../src/ai-native/evaluation/runMetadata.js";
 import { loadEvaluationSet, loadEvidenceStore } from "./phase3b-fixtures.mjs";
 
 test("runs the versioned 100-case baseline without a model", async () => {
@@ -251,4 +252,24 @@ test("removes raw language and model-authored details from Phase 3C reports", ()
   assert.equal(serialized.includes("untrusted model detail"), false);
   assert.equal(minimized.actual_request.time.arrival_at, "2026-08-16T14:00:00+08:00");
   assert.deepEqual(minimized.verification_issues, [{ code: "EVIDENCE_NOT_FOUND" }]);
+});
+
+test("binds a Phase 3C evaluation report to a reproducible Git build", () => {
+  const clean = buildEvaluationRunMetadata({
+    gitCommit: "1234567890abcdef1234567890abcdef12345678",
+    gitBranch: "codex/phase3c-closeout",
+    gitStatus: "",
+    packageVersion: "0.0.0",
+  });
+  const dirty = buildEvaluationRunMetadata({
+    gitCommit: "1234567890abcdef1234567890abcdef12345678",
+    gitBranch: "codex/phase3c-closeout",
+    gitStatus: " M src/example.js\n",
+    packageVersion: "0.0.0",
+  });
+
+  assert.equal(clean.worktree_dirty, false);
+  assert.equal(clean.build_id, "1234567890ab");
+  assert.equal(dirty.worktree_dirty, true);
+  assert.equal(dirty.build_id, "1234567890ab-dirty");
 });

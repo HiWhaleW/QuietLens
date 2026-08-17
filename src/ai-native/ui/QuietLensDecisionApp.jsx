@@ -9,6 +9,7 @@ import {
   CircleHelp,
   Clock3,
   Database,
+  ExternalLink,
   LoaderCircle,
   MapPin,
   Menu,
@@ -36,6 +37,7 @@ import {
   SENSORY_DIMENSIONS,
   SENSORY_REFERENCE_PROFILE_VERSION,
 } from "../evidence/explorationScore.js";
+import { buildCandidateCitationView } from "../evidence/citationView.js";
 import { applyClarificationAnswer } from "../intent/clarification.js";
 import { applyManualFieldEdit } from "../intent/manualFieldEdit.js";
 import { decisionReducer, initialDecisionState } from "../state/decisionReducer.js";
@@ -444,6 +446,54 @@ function StoreProfile({ placeId, score, arrivalAt }) {
   );
 }
 
+function CandidateEvidence({ candidate, context, emit }) {
+  const records = buildCandidateCitationView(candidate, context);
+  const viewedEvidence = useRef(new Set());
+
+  if (records.length === 0) return null;
+
+  function recordViewed(record, open) {
+    if (!open || viewedEvidence.current.has(record.evidence_id)) return;
+    viewedEvidence.current.add(record.evidence_id);
+    emit("evidence_record_viewed", "F5", {
+      place_id: candidate.place_id,
+      evidence_id: record.evidence_id,
+      attribute: record.attribute,
+    });
+  }
+
+  function sourceOpened(source) {
+    emit("evidence_source_opened", "F5", {
+      place_id: candidate.place_id,
+      source_id: source.source_id,
+      source_type: source.source_type,
+    });
+  }
+
+  return (
+    <section className="ai-candidate-evidence" aria-labelledby="candidate-evidence-title">
+      <h3 id="candidate-evidence-title"><Database aria-hidden="true" />决策依据</h3>
+      <p className="ai-evidence-boundary">以下记录直接支持本轮理由、权衡或硬条件判断。来源内容只作为证据，不是实时状态保证。</p>
+      <div className="ai-evidence-list">
+        {records.map((record) => (
+          <details key={record.evidence_id} onToggle={(event) => recordViewed(record, event.currentTarget.open)}>
+            <summary><strong>{ATTRIBUTE_LABELS[record.attribute] ?? record.attribute}</strong><span>{record.kind_labels.join(" · ")}</span></summary>
+            <p>{record.claim_text}</p>
+            <span>核实于 {record.verified_at ?? "日期未登记"} · {record.reliability === "high" ? "高可靠度" : record.reliability === "medium" ? "中可靠度" : "低可靠度"}</span>
+            {record.sources.map((source) => source.url ? (
+              <a key={source.source_id} href={source.url} target="_blank" rel="noreferrer" onClick={() => sourceOpened(source)}>
+                <span>{source.publisher} · {source.title}</span><ExternalLink aria-hidden="true" />
+              </a>
+            ) : (
+              <small key={source.source_id}>{source.publisher} · {source.title}</small>
+            ))}
+          </details>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function DecisionRail({ state, onClose, emit }) {
   const { brief, context, selectedPlaceId } = state;
   if (!brief) return null;
@@ -464,6 +514,7 @@ function DecisionRail({ state, onClose, emit }) {
         <h2 id="place-detail-title">{place.canonical_name}</h2>
         <p className="ai-place-address"><MapPin aria-hidden="true" />{place.address}</p>
         {!place.asset && <p className="ai-asset-pending">门店水彩场景待补充，当前仍可查看已核实的文字证据。</p>}
+        <CandidateEvidence candidate={candidate} context={context} emit={emit} />
         <StoreProfile placeId={place.place_id} score={exploration?.score} arrivalAt={brief.request.time.arrival_at} />
       </aside>
     );

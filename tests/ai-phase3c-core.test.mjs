@@ -9,6 +9,7 @@ import {
   scoreExplorationPlaces,
 } from "../src/ai-native/evidence/explorationScore.js";
 import { buildPublicDecisionContext, retrieveEvidence } from "../src/ai-native/evidence/retrieveEvidence.js";
+import { buildCandidateCitationView } from "../src/ai-native/evidence/citationView.js";
 import { chooseClarification } from "../src/ai-native/intent/clarification.js";
 import { preprocessUserInput } from "../src/ai-native/intent/inputPreprocessor.js";
 import { applyManualFieldEdit } from "../src/ai-native/intent/manualFieldEdit.js";
@@ -201,6 +202,55 @@ test("verifier publishes only grounded candidates and blocks an invented place",
   });
   assert.equal(blocked.valid, false);
   assert.ok(blocked.issues.some((issue) => issue.code === "CANDIDATE_OUTSIDE_ALLOWLIST"));
+});
+
+test("builds a user-visible citation view only from the selected candidate's public context", () => {
+  const request = mergeDecisionRequestPatch(
+    createEmptyDecisionRequest("req-phase3c-citation-view"),
+    initialPatch("req-phase3c-citation-view"),
+  ).request;
+  const retrieval = retrieveEvidence(request, store);
+  const result = verifyAndRenderDecisionDraft({
+    draft: {
+      flow_schema_version: "0.1.0",
+      request_id: request.request_id,
+      outcome: "publish",
+      refusal_reason_code: null,
+      candidates: [
+        {
+          place_id: "hp-cafe-on-air",
+          role: "primary",
+          fit_evidence_groups: [{ attribute: "daylight", evidence_ids: ["ev-cafe-air-daylight"] }],
+          tradeoff_evidence_groups: [{ attribute: "crowding", evidence_ids: ["ev-cafe-air-crowding"] }],
+          unknown_attributes: [],
+          assumption_refs: [],
+        },
+        {
+          place_id: "hp-blue-house",
+          role: "alternative",
+          fit_evidence_groups: [{ attribute: "daylight", evidence_ids: ["ev-blue-daylight"] }],
+          tradeoff_evidence_groups: [],
+          unknown_attributes: [],
+          assumption_refs: [],
+        },
+      ],
+    },
+    request,
+    retrieval,
+    store,
+    modelVersion: "mock-model",
+    promptVersion: "mock-prompt",
+  });
+  const context = buildPublicDecisionContext(result.brief, store, retrieval);
+  const records = buildCandidateCitationView(result.brief.candidates[0], context);
+
+  assert.deepEqual(records.map((record) => record.evidence_id), [
+    "ev-cafe-air-daylight",
+    "ev-cafe-air-crowding",
+  ]);
+  assert.ok(records.every((record) => record.place_id === "hp-cafe-on-air"));
+  assert.ok(records.every((record) => record.sources.length > 0));
+  assert.ok(records.some((record) => record.sources.some((source) => source.url)));
 });
 
 test("renders registered evidence enums as simplified Chinese", () => {

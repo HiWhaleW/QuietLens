@@ -1026,6 +1026,32 @@
   font-size: 12px !important;
 }
 
+.ai-evidence-boundary {
+  color: var(--muted) !important;
+  font-size: 11px !important;
+  line-height: 1.7 !important;
+}
+
+.ai-evidence-list {
+  margin-top: 14px;
+}
+
+.ai-evidence-list summary strong {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ai-evidence-list details > small,
+.ai-evidence-list details > span {
+  display: block;
+  margin-top: 7px;
+}
+
+.ai-evidence-list a span {
+  overflow-wrap: anywhere;
+}
+
 .ai-evidence-list a {
   display: flex;
   align-items: center;

@@ -1,4 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 import {
   evaluatePhase3CGates,
@@ -6,6 +8,7 @@ import {
   scorePhase3CCase,
   summarizePhase3CRun,
 } from "../src/ai-native/evaluation/runPhase3C.js";
+import { buildEvaluationRunMetadata } from "../src/ai-native/evaluation/runMetadata.js";
 import {
   correctAndRecommend,
   interpretDecisionRequest,
@@ -16,6 +19,7 @@ import { isHeaderSafeApiKey } from "../worker/ai/deepseekResponsesClient.js";
 const evidenceRoot = new URL("../docs/phase-3b/evidence/v0.1/", import.meta.url);
 const evaluationRoot = new URL("../docs/phase-3b/evaluation/v0.1/", import.meta.url);
 const outputRoot = new URL("../docs/phase-3c/evaluation-runs/", import.meta.url);
+const execFileAsync = promisify(execFile);
 
 async function readJson(name, root) {
   return JSON.parse(await readFile(new URL(name, root), "utf8"));
@@ -49,6 +53,22 @@ const selectedCases = selectedCaseId
     : allCases;
 if (selectedCases.length === 0) {
   console.error(`Evaluation case not found: ${selectedCaseId}`);
+  process.exit(2);
+}
+const [{ stdout: gitCommit }, { stdout: gitBranch }, { stdout: gitStatus }, packageJson] = await Promise.all([
+  execFileAsync("git", ["rev-parse", "HEAD"]),
+  execFileAsync("git", ["branch", "--show-current"]),
+  execFileAsync("git", ["status", "--porcelain", "--untracked-files=all"]),
+  readJson("../package.json", import.meta.url),
+]);
+const implementation = buildEvaluationRunMetadata({
+  gitCommit: gitCommit.trim(),
+  gitBranch: gitBranch.trim(),
+  gitStatus,
+  packageVersion: packageJson.version,
+});
+if (implementation.worktree_dirty && !selectedCaseId && !process.argv.includes("--allow-dirty")) {
+  console.error("Phase 3C gate evaluation requires a clean Git worktree; commit the implementation or use --allow-dirty for non-gating diagnostics.");
   process.exit(2);
 }
 const events = [];
@@ -190,6 +210,7 @@ const report = {
   evidence_store_version: manifest.evidence_store_version,
   intent_model: env.QL_INTENT_MODEL,
   reasoning_model: env.QL_REASONING_MODEL,
+  implementation,
   passed: gateResult.passed,
   gates: gateResult.gates,
   metrics,
