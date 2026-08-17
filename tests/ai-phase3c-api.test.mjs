@@ -1211,32 +1211,13 @@ test("refuses deterministically when no candidate has confirmed all hard constra
   assert.ok(!runtime.events.some((event) => event.event_name === "decision_reasoning_started"));
 });
 
-test("uses the reasoner to compare one grounded match with explicitly uncertain alternatives", async () => {
+test("publishes one grounded hard-constraint match without uncertain alternatives", async () => {
   const runtime = environment();
   let modelCalled = false;
   runtime.env.QUIETLENS_MODEL_CLIENT = {
     async callStructured({ input }) {
       modelCalled = true;
-      const context = JSON.parse(input);
-      const eligible = context.candidates.find((candidate) => candidate.eligibility === "eligible");
-      const uncertain = context.candidates.find((candidate) => candidate.eligibility === "uncertain" && candidate.evidence.length > 0);
-      return {
-        value: {
-          outcome: "publish",
-          refusal_reason_code: null,
-          candidates: [eligible, uncertain].map((candidate, index) => ({
-            place_id: candidate.place_id,
-            role: index === 0 ? "primary" : "conditional",
-            fit_evidence_groups: [{
-              attribute: candidate.evidence[0].attribute,
-              evidence_ids: [candidate.evidence[0].evidence_id],
-            }],
-            tradeoff_evidence_groups: [],
-          })),
-        },
-        usage: null,
-        response_id: "mock-bounded-comparison",
-      };
+      throw new Error(`Reasoner must not run for one eligible candidate: ${input}`);
     },
   };
   const request = createEmptyDecisionRequest("req-single-eligible");
@@ -1253,12 +1234,12 @@ test("uses the reasoner to compare one grounded match with explicitly uncertain 
 
   assert.equal(response.status, 200);
   assert.equal(result.brief.status, "published");
-  assert.equal(result.brief.candidates.length, 2);
+  assert.equal(result.brief.candidates.length, 1);
   assert.equal(result.brief.candidates[0].place_id, "hp-cafe-on-air");
-  assert.ok(result.brief.candidates[1].hard_constraint_results.some((item) => item.status === "unknown"));
+  assert.ok(result.brief.candidates[0].hard_constraint_results.every((item) => item.status === "pass"));
   assert.ok(result.brief.candidates[0].fit_reasons[0].evidence_ids.length > 0);
-  assert.equal(modelCalled, true);
-  assert.equal(result.metrics.model_calls, 1);
+  assert.equal(modelCalled, false);
+  assert.equal(result.metrics.model_calls, 0);
   assert.ok(runtime.events.some((event) => event.event_name === "evidence_verification_succeeded"));
   assert.ok(runtime.events.some((event) => event.event_name === "decision_published"));
 });
@@ -1280,10 +1261,10 @@ test("keeps hard-constraint evidence in the bounded reasoner context", () => {
   assert.deepEqual(context.candidates.map((candidate) => candidate.place_id).sort(), [
     "hp-antique",
     "hp-blue-house",
-    "hp-east-sea",
     "hp-metal-hands",
   ]);
-  for (const candidate of context.candidates.filter((item) => item.eligibility === "eligible")) {
+  for (const candidate of context.candidates) {
+    assert.equal(candidate.eligibility, "eligible");
     assert.ok(candidate.evidence.length <= 4);
     assert.ok(candidate.evidence.some((record) => record.attribute === "outdoor_seating"));
     for (const record of candidate.evidence) {
@@ -1292,7 +1273,7 @@ test("keeps hard-constraint evidence in the bounded reasoner context", () => {
       assert.notEqual(sourceRecord.epistemic_status, "model_inference");
     }
   }
-  assert.ok(context.candidates.some((candidate) => candidate.eligibility === "uncertain"));
+  assert.ok(context.candidates.length >= 2);
 });
 
 test("keeps unknown disclosure and assumptions outside the reasoner output contract", () => {

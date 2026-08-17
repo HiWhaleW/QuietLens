@@ -212,12 +212,8 @@ export function verifyAndRenderDecisionDraft({ draft, request, retrieval, store,
     if (roles.has(candidate.role)) issues.push({ code: "CANDIDATE_ROLE_DUPLICATE", detail: candidate.role });
     selectedIds.add(candidate.place_id);
     roles.add(candidate.role);
-    if (candidate.role === "primary" && retrieved.eligibility !== "eligible") {
-      issues.push({ code: "PRIMARY_HARD_CONSTRAINT_UNCONFIRMED", detail: candidate.place_id });
-    }
-    if (candidate.role !== "primary" && retrieved.eligibility === "uncertain") {
-      const hasUnknownHardConstraint = retrieved.hard_constraint_results.some((result) => result.status === "unknown");
-      if (!hasUnknownHardConstraint) issues.push({ code: "CONDITIONAL_STATUS_INVALID", detail: candidate.place_id });
+    if (retrieved.eligibility !== "eligible") {
+      issues.push({ code: "CANDIDATE_HARD_CONSTRAINT_UNCONFIRMED", detail: candidate.place_id });
     }
 
     const retrievedIds = new Set(retrieved.evidence.map((record) => record.evidence_id));

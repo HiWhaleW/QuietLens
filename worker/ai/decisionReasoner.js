@@ -81,8 +81,8 @@ function evidenceRelevance(record, request) {
 
 export function buildReasonerContext(request, retrieval) {
   const candidates = retrieval.candidates
-    .sort((a, b) => Number(b.eligibility === "eligible") - Number(a.eligibility === "eligible")
-      || candidateRelevance(b, request) - candidateRelevance(a, request)
+    .filter((candidate) => candidate.eligibility === "eligible")
+    .sort((a, b) => candidateRelevance(b, request) - candidateRelevance(a, request)
       || a.place.place_id.localeCompare(b.place.place_id))
     .slice(0, 4);
   return {

@@ -11,6 +11,7 @@ import {
 } from "../../src/ai-native/evidence/retrieveEvidence.js";
 import {
   renderDeterministicRefusal,
+  renderDeterministicSingleCandidate,
   verifyAndRenderDecisionDraft,
 } from "../../src/ai-native/decision/verifyAndRender.js";
 import { assertContract } from "../../src/ai-native/contracts/validator.js";
@@ -177,7 +178,7 @@ export async function recommendForDecisionRequest(env, payload, { workflowStarte
 
   const eligibleCandidateCount = retrieval.candidates.filter((candidate) => candidate.eligibility === "eligible").length;
   const timeConflict = hasTimeWindowConflict(request);
-  if (timeConflict || retrieval.status !== "ready" || retrieval.candidates.length < 2 || eligibleCandidateCount === 0) {
+  if (timeConflict || retrieval.status !== "ready" || eligibleCandidateCount === 0) {
     const reasonCode = timeConflict
       ? "time_window_conflict"
       : retrieval.status === "out_of_scope"
@@ -193,6 +194,43 @@ export async function recommendForDecisionRequest(env, payload, { workflowStarte
       promptVersion: "deterministic-refusal-v0.1.0",
     });
     return { brief, context: buildPublicDecisionContext(brief, store, retrieval), verification: { valid: true, issues: [] } };
+  }
+
+  if (eligibleCandidateCount === 1) {
+    const verification = renderDeterministicSingleCandidate({ request, retrieval, store });
+    const brief = verification.brief;
+    const citationCount = brief.candidates[0].fit_reasons.reduce(
+      (count, reason) => count + reason.evidence_ids.length,
+      0,
+    );
+    await record(env, {
+      eventName: "evidence_verification_succeeded",
+      sessionId: payload.session_id,
+      requestId: request.request_id,
+      stage: "F4",
+      modelVersion: "not-invoked",
+      promptVersion: "deterministic-single-candidate-v0.1.0",
+      properties: { claim_count: 1, citation_count: citationCount },
+    });
+    await record(env, {
+      eventName: "decision_published",
+      sessionId: payload.session_id,
+      requestId: request.request_id,
+      stage: "F4",
+      modelVersion: "not-invoked",
+      promptVersion: "deterministic-single-candidate-v0.1.0",
+      properties: {
+        candidate_count: 1,
+        unknown_count: new Set(brief.candidates[0].unknowns).size,
+        total_duration_ms: elapsedMs(workflowStartedAt),
+      },
+    });
+    return {
+      brief,
+      context: buildPublicDecisionContext(brief, store, retrieval),
+      verification,
+      metrics: { model_calls: 0, usage: [], verification_repair_codes: [] },
+    };
   }
 
   const reasoningStarted = Date.now();

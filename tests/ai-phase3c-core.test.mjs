@@ -204,6 +204,52 @@ test("verifier publishes only grounded candidates and blocks an invented place",
   assert.ok(blocked.issues.some((issue) => issue.code === "CANDIDATE_OUTSIDE_ALLOWLIST"));
 });
 
+test("blocks an uncertain candidate from every recommendation role", () => {
+  const request = createEmptyDecisionRequest("req-phase3c-hard-gate");
+  request.hard_constraints = [{
+    constraint_id: "hc-phase3c-outlets",
+    field: "outlets",
+    operator: "available",
+    value: true,
+  }];
+  request.unknowns = [];
+  const retrieval = retrieveEvidence(request, store);
+  const result = verifyAndRenderDecisionDraft({
+    draft: {
+      flow_schema_version: "0.1.0",
+      request_id: request.request_id,
+      outcome: "publish",
+      refusal_reason_code: null,
+      candidates: [{
+        place_id: "hp-cafe-on-air",
+        role: "primary",
+        fit_evidence_groups: [{ attribute: "outlets", evidence_ids: ["ev-cafe-air-outlets"] }],
+        tradeoff_evidence_groups: [],
+        unknown_attributes: [],
+        assumption_refs: [],
+      }, {
+        place_id: "hp-naive",
+        role: "conditional",
+        fit_evidence_groups: [{ attribute: "identity", evidence_ids: ["ev-naive-identity"] }],
+        tradeoff_evidence_groups: [],
+        unknown_attributes: [],
+        assumption_refs: [],
+      }],
+    },
+    request,
+    retrieval,
+    store,
+    modelVersion: "mock-model",
+    promptVersion: "mock-prompt",
+  });
+
+  assert.equal(result.valid, false);
+  assert.ok(result.issues.some((issue) => (
+    issue.code === "CANDIDATE_HARD_CONSTRAINT_UNCONFIRMED"
+      && issue.detail === "hp-naive"
+  )));
+});
+
 test("builds a user-visible citation view only from the selected candidate's public context", () => {
   const request = mergeDecisionRequestPatch(
     createEmptyDecisionRequest("req-phase3c-citation-view"),
