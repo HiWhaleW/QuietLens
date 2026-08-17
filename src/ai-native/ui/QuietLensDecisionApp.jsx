@@ -478,7 +478,7 @@ function CandidateEvidence({ candidate, context, emit }) {
         {records.map((record) => (
           <details key={record.evidence_id} onToggle={(event) => recordViewed(record, event.currentTarget.open)}>
             <summary><strong>{ATTRIBUTE_LABELS[record.attribute] ?? record.attribute}</strong><span>{record.kind_labels.join(" · ")}</span></summary>
-            <p>{record.claim_text}</p>
+            <p>{record.display_text}</p>
             <span>核实于 {record.verified_at ?? "日期未登记"} · {record.reliability === "high" ? "高可靠度" : record.reliability === "medium" ? "中可靠度" : "低可靠度"}</span>
             {record.sources.map((source) => source.url ? (
               <a key={source.source_id} href={source.url} target="_blank" rel="noreferrer" onClick={() => sourceOpened(source)}>

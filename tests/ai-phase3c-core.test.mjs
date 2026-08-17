@@ -251,6 +251,41 @@ test("builds a user-visible citation view only from the selected candidate's pub
   assert.ok(records.every((record) => record.place_id === "hp-cafe-on-air"));
   assert.ok(records.every((record) => record.sources.length > 0));
   assert.ok(records.some((record) => record.sources.some((source) => source.url)));
+  assert.deepEqual(records.map((record) => record.display_text), [
+    "自然光：已有较强自然光证据",
+    "拥挤程度需权衡：13:00 后曾出现接近满座的观察",
+  ]);
+  assert.ok(records.every((record) => record.display_text !== record.claim_text));
+  assert.ok(records.every((record) => !/[A-Za-z]/.test(record.display_text)));
+});
+
+test("renders hard-constraint-only citations with bounded Chinese copy", () => {
+  const candidate = {
+    place_id: "hp-cafe-on-air",
+    fit_reasons: [],
+    tradeoffs: [],
+    hard_constraint_results: [{
+      constraint_id: "hc-outdoor",
+      status: "pass",
+      evidence_ids: ["ev-outdoor"],
+      reason_code: "evidence_match",
+    }],
+  };
+  const context = {
+    evidence: [{
+      evidence_id: "ev-outdoor",
+      place_id: "hp-cafe-on-air",
+      attribute: "outdoor_seating",
+      claim_text: "An internal English claim must not be shown.",
+      source_ids: ["src-official"],
+    }],
+    sources: [{ source_id: "src-official", publisher: "官方渠道", title: "门店信息", url: null }],
+  };
+
+  const [record] = buildCandidateCitationView(candidate, context);
+
+  assert.equal(record.display_text, "该条已核实记录支持本轮硬条件已满足的判断。");
+  assert.doesNotMatch(record.display_text, /[A-Za-z]/);
 });
 
 test("renders registered evidence enums as simplified Chinese", () => {
