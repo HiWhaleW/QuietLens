@@ -1031,7 +1031,9 @@ input:focus-visible {
   font-size: 30px;
   font-weight: 500;
   line-height: 42px;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  word-break: keep-all;
+  text-wrap: balance;
 }
 
 .place-heading p {

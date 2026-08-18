@@ -1,0 +1,6 @@
+{
+  "algorithm": "sha256",
+  "digest": "d425d07ca52355d4497eecd9386327f3436788b01df4191f4e385a018c2cac76",
+  "evidence_store_version": "0.1.0",
+  "evaluation_set_version": "0.1.5"
+}
