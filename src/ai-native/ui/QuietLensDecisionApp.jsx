@@ -74,6 +74,10 @@ const UNKNOWN_LABELS = {
   walk_time: "步行时间",
 };
 const CLARIFICATION_COPY = {
+  task_details: "这次主要想做什么？也请补充预计停留多久。",
+  arrival_time_details: "你计划什么时候到店？",
+  duration_details: "你预计会停留多久？",
+  location_details: "你想在哪个区域找？",
   call_environment_requirement: "线上会议需要在店内进行吗？",
   maximum_walk_time: "你最多愿意步行多久？",
   outlet_requirement: "插座是必须条件吗？",
@@ -273,16 +277,23 @@ function ProcessStatus({ stage }) {
   );
 }
 
-function Clarification({ clarification, onAnswer }) {
+function Clarification({ clarification, onAnswer, onTextAnswer, disabled }) {
+  const [answer, setAnswer] = useState("");
+  const acceptsText = clarification.option_codes.includes("answer_in_own_words");
   return (
     <section className="ai-clarification" aria-labelledby="clarification-title">
       <span className="ai-stage-label"><Sparkles aria-hidden="true" />需要确认一项</span>
       <h2 id="clarification-title">{CLARIFICATION_COPY[clarification.question_code] ?? "这项条件会改变候选结果"}</h2>
-      <div>
-        {clarification.option_codes.map((code) => (
+      {acceptsText ? (
+        <form onSubmit={(event) => { event.preventDefault(); if (answer.trim()) onTextAnswer(answer.trim()); }}>
+          <textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="直接用自然语言补充" aria-label="补充本次需求" disabled={disabled} />
+          <button type="submit" disabled={disabled || !answer.trim()}><Send aria-hidden="true" />提交补充</button>
+        </form>
+      ) : <div>
+        {clarification.option_codes.filter((code) => code !== "answer_in_own_words").map((code) => (
           <button key={code} type="button" onClick={() => onAnswer(code)}>{OPTION_COPY[code] ?? code}</button>
         ))}
-      </div>
+      </div>}
     </section>
   );
 }
@@ -617,6 +628,27 @@ export function QuietLensDecisionApp() {
     await runRecommendation(next);
   }
 
+  async function answerClarificationText(answer) {
+    const targetField = state.clarification.target_field;
+    emit("clarification_answered", "F2", { target_field: targetField, answer_code: "natural_language" });
+    dispatch({ type: "CLARIFICATION_PARSE_STARTED" });
+    try {
+      const result = await interpretDecision({
+        session_id: sessionId,
+        request_id: state.request.request_id,
+        current_request: state.request,
+        user_text: answer,
+        mode: "correction",
+        clarification_already_asked: true,
+        page_context: { area: state.request.location.area },
+      });
+      dispatch({ type: "INTERPRETED", payload: result });
+      await runRecommendation(result.request);
+    } catch (error) {
+      dispatch({ type: "FAILED", errorCode: error.code });
+    }
+  }
+
   async function submitCorrection(event) {
     event.preventDefault();
     if (!correction.trim() || !state.request) return;
@@ -754,7 +786,7 @@ export function QuietLensDecisionApp() {
               <>
                 <section className="ai-original-request"><span>你说的是</span><p>{input || correction || "已保留本次需求"}</p></section>
                 {state.stage === "F1" && !state.request && <ProcessStatus stage="F1" />}
-                {state.stage === "F2" && state.clarification && <Clarification clarification={state.clarification} onAnswer={answerClarification} />}
+                {state.stage === "F2" && state.clarification && <Clarification clarification={state.clarification} onAnswer={answerClarification} onTextAnswer={answerClarificationText} disabled={busy} />}
                 {state.request && <IntentSummary request={state.request} changes={state.changes} disabled={busy} onEdit={editIntentField} onEditStarted={(row) => emit("intent_field_edit_started", "F1", { field_name: row.kind, previous_state: row.value === "尚未指定" ? "empty" : "set" })} />}
                 {state.stage === "F3" && <ProcessStatus stage="F3" />}
                 {state.stage === "F6" && <ProcessStatus stage="F6" />}

@@ -4,6 +4,26 @@ import { isAreaWithinScope } from "../evidence/retrieveEvidence.js";
 import { hasTimeWindowConflict } from "./requestPatch.js";
 
 const CLARIFICATIONS = {
+  task: {
+    question_code: "task_details",
+    option_codes: ["answer_in_own_words"],
+    conservative_assumption: null,
+  },
+  arrival_time: {
+    question_code: "arrival_time_details",
+    option_codes: ["answer_in_own_words"],
+    conservative_assumption: null,
+  },
+  duration: {
+    question_code: "duration_details",
+    option_codes: ["answer_in_own_words"],
+    conservative_assumption: null,
+  },
+  location: {
+    question_code: "location_details",
+    option_codes: ["answer_in_own_words"],
+    conservative_assumption: null,
+  },
   call_environment: {
     question_code: "call_environment_requirement",
     option_codes: ["need_stable_background", "leave_before_call", "use_conservative_assumption"],
@@ -41,6 +61,21 @@ const CLARIFICATIONS = {
   },
 };
 
+const CLARIFICATION_PRIORITY = [
+  "task",
+  "arrival_time",
+  "duration",
+  "location",
+  "walk_time",
+  "call_environment",
+  "outlets",
+  "seating",
+  "noise",
+  "crowding",
+  "daylight",
+];
+const CORE_CLARIFICATION_PRIORITY = ["task", "arrival_time", "duration", "location"];
+
 function noClarification() {
   return {
     flow_schema_version: AI_FLOW_SCHEMA_VERSION,
@@ -62,9 +97,11 @@ export function chooseClarification(request, { alreadyAsked = false, preferredTa
   const unresolved = request.unknowns.filter((field) => (
     CLARIFICATIONS[field] && !explicitHardFields.has(field)
   ));
-  const target = preferredTarget && unresolved.includes(preferredTarget)
-    ? preferredTarget
-    : null;
+  const missingCoreTarget = CORE_CLARIFICATION_PRIORITY.find((field) => unresolved.includes(field));
+  const target = missingCoreTarget
+    ?? (preferredTarget && unresolved.includes(preferredTarget) ? preferredTarget : null)
+    ?? CLARIFICATION_PRIORITY.find((field) => unresolved.includes(field))
+    ?? null;
   if (!target) return assertContract("ClarificationDecision", noClarification());
 
   return assertContract("ClarificationDecision", {
@@ -84,6 +121,9 @@ export function applyClarificationAnswer(request, clarification, answerCode) {
   assertContract("ClarificationDecision", clarification);
   if (!clarification.required || !clarification.option_codes.includes(answerCode)) {
     throw new Error("CLARIFICATION_ANSWER_INVALID");
+  }
+  if (answerCode === "answer_in_own_words") {
+    throw new Error("CLARIFICATION_TEXT_REQUIRED");
   }
 
   const next = structuredClone(request);

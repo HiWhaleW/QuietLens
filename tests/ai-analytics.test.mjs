@@ -5,23 +5,34 @@ import {
   EVENT_DEFINITIONS,
   validateAnalyticsEvent,
 } from "../src/ai-native/analytics/eventContract.js";
+import { routeAnalyticsRequest } from "../worker/routes/analytics.js";
 
 const numericProperties = new Set([
   "candidate_count", "unknown_count", "assumption_count", "field_count", "evidence_count",
   "claim_count", "place_scope_count", "source_type_count", "candidate_count_before",
   "candidate_count_after", "changed_field_count", "duration_ms", "hit_count", "citation_count",
   "total_duration_ms", "hard_constraint_count", "candidate_observation_count",
+  "model_call_count", "reported_usage_call_count", "invalid_usage_call_count", "retry_count",
+  "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens", "total_tokens",
+  "saved_preference_count", "saved_decision_count", "resulting_account_version", "account_version",
+  "deleted_preference_count", "deleted_decision_count",
 ]);
-const booleanProperties = new Set(["conservative_assumption_used", "request_preserved"]);
+const booleanProperties = new Set(["conservative_assumption_used", "request_preserved", "usage_complete"]);
 const arrayProperties = new Set([
   "role_order", "unknown_types", "changed_fields", "relaxable_fields",
 ]);
 
 function propertyValue(name) {
+  if (["invalid_usage_call_count", "retry_count", "cached_input_tokens", "reasoning_output_tokens"].includes(name)) return 0;
+  if (name === "total_tokens") return 2;
   if (numericProperties.has(name)) return 1;
   if (booleanProperties.has(name)) return true;
   if (arrayProperties.has(name)) return ["controlled_enum"];
   if (name === "place_id") return "hp-naive";
+  if (name === "cost_schema_version") return "1.0.0";
+  if (name === "operation") return "intent_initial";
+  if (name === "model_version") return "deepseek-v4-flash";
+  if (name === "prompt_version") return "intent-v0.4.1";
   if (name.endsWith("error_code")) return "VALIDATION_BLOCKED";
   return "controlled_enum";
 }
@@ -91,6 +102,17 @@ test("rejects raw language and sensitive local data", () => {
   ));
 });
 
+test("rejects incomplete or internally inconsistent model usage observations", () => {
+  const event = makeEvent("model_usage_observed");
+  event.properties.model_call_count = 2;
+  event.properties.reported_usage_call_count = 1;
+  event.properties.usage_complete = true;
+  const result = validateAnalyticsEvent(event);
+
+  assert.equal(result.valid, false);
+  assert.ok(result.issues.some((issue) => issue.code === "EVENT_COST_OBSERVATION_INVALID"));
+});
+
 test("rejects unversioned or unknown events", () => {
   const event = makeEvent("candidate_selected");
   event.event_schema_version = "0.0.0";
@@ -100,4 +122,20 @@ test("rejects unversioned or unknown events", () => {
   assert.equal(result.valid, false);
   assert.ok(result.issues.some((issue) => issue.code === "EVENT_SCHEMA_INVALID"));
   assert.ok(result.issues.some((issue) => issue.code === "EVENT_NAME_UNKNOWN"));
+});
+
+test("keeps model usage observations server-owned", async () => {
+  let writeCount = 0;
+  const event = makeEvent("model_usage_observed");
+  const response = await routeAnalyticsRequest(new Request("https://quietlens.test/api/analytics", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://quietlens.test" },
+    body: JSON.stringify(event),
+  }), {
+    QUIETLENS_ANALYTICS_SINK: { write: async () => { writeCount += 1; } },
+  });
+
+  assert.equal(response.status, 403);
+  assert.deepEqual(await response.json(), { error: { code: "ANALYTICS_EVENT_SERVER_ONLY" } });
+  assert.equal(writeCount, 0);
 });

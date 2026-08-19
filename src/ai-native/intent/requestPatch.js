@@ -24,6 +24,18 @@ const UNKNOWN_BY_PATCH_FIELD = {
   max_walk_minutes: "walk_time",
 };
 
+const CANONICAL_UNKNOWNS = {
+  task_type: "task",
+  duration_minutes: "duration",
+  arrival_at: "arrival_time",
+  location_area: "location",
+  max_walk_minutes: "walk_time",
+};
+
+function canonicalUnknown(field) {
+  return CANONICAL_UNKNOWNS[field] ?? field;
+}
+
 function clone(value) {
   return structuredClone(value);
 }
@@ -158,8 +170,18 @@ export function mergeDecisionRequestPatch(currentRequest, patch) {
     if (valuesDiffer(before, next[target])) changes.push({ field, before, after: clone(next[target]) });
   }
 
-  const retainedUnknowns = next.unknowns.filter((field) => !resolvedUnknowns.has(field));
-  next.unknowns = [...new Set([...retainedUnknowns, ...patch.unknowns])];
+  const retainedUnknowns = next.unknowns
+    .map(canonicalUnknown)
+    .filter((field) => !resolvedUnknowns.has(field));
+  const resolvedEvidenceFields = new Set([
+    ...next.hard_constraints.map((item) => item.field),
+    ...next.soft_preferences.map((item) => item.field),
+  ]);
+  const reportedUnknowns = patch.unknowns
+    .map(canonicalUnknown)
+    .filter((field) => !resolvedUnknowns.has(field));
+  next.unknowns = [...new Set([...retainedUnknowns, ...reportedUnknowns])]
+    .filter((field) => !resolvedEvidenceFields.has(field));
   next.assumptions = patch.mode === "initial"
     ? [...new Set(patch.assumptions)]
     : [...new Set([...next.assumptions, ...patch.assumptions])];

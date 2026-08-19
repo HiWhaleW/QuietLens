@@ -77,6 +77,51 @@ test("selects at most one high-impact clarification", () => {
   assert.equal(chooseClarification(request, { alreadyAsked: true, preferredTarget: "outlets" }).required, false);
 });
 
+test("requires one clarification when the interpreted request is incomplete", () => {
+  const request = createEmptyDecisionRequest("req-phase3c-incomplete");
+  const clarification = chooseClarification(request);
+  assert.equal(clarification.required, true);
+  assert.equal(clarification.target_field, "task");
+  assert.deepEqual(clarification.option_codes, ["answer_in_own_words"]);
+  assert.equal(chooseClarification(request, { alreadyAsked: true }).required, false);
+});
+
+test("canonicalizes model field aliases before checking completeness", () => {
+  const request = createEmptyDecisionRequest("req-phase3c-unknown-aliases");
+  const patch = createKeepPatch(request.request_id, "initial");
+  patch.unknowns = ["duration_minutes", "arrival_at", "max_walk_minutes"];
+  const merged = mergeDecisionRequestPatch(request, patch).request;
+  assert.deepEqual(merged.unknowns, ["task", "duration", "arrival_time", "walk_time"]);
+  assert.equal(chooseClarification(merged).target_field, "task");
+});
+
+test("does not let model unknowns reopen scalar fields filled in the same patch", () => {
+  const request = createEmptyDecisionRequest("req-phase3c-resolved-scalars");
+  const patch = createKeepPatch(request.request_id, "initial");
+  patch.task_type = { action: "set", value: "recovery", confidence: "high" };
+  patch.duration_minutes = { action: "set", value: 90, confidence: "high" };
+  patch.arrival_at = { action: "set", value: "2026-08-18T14:00:00+08:00", confidence: "high" };
+  patch.max_walk_minutes = { action: "set", value: 15, confidence: "high" };
+  patch.unknowns = ["task", "duration", "arrival_time", "walk_time"];
+  const merged = mergeDecisionRequestPatch(request, patch).request;
+  assert.deepEqual(merged.unknowns, []);
+  assert.equal(chooseClarification(merged).required, false);
+});
+
+test("does not keep an unknown that a confirmed preference already resolves", () => {
+  const request = createEmptyDecisionRequest("req-phase3c-resolved-preference");
+  const patch = createKeepPatch(request.request_id, "initial");
+  patch.soft_preferences = {
+    action: "replace",
+    value: [{ field: "daylight", priority: "high" }],
+    confidence: "high",
+  };
+  patch.unknowns = ["daylight", "walk_time"];
+  const merged = mergeDecisionRequestPatch(request, patch).request;
+  assert.ok(!merged.unknowns.includes("daylight"));
+  assert.ok(merged.unknowns.includes("walk_time"));
+});
+
 test("applies a validated manual field edit without changing unrelated request state", () => {
   const request = mergeDecisionRequestPatch(
     createEmptyDecisionRequest("req-phase3c-manual-edit"),

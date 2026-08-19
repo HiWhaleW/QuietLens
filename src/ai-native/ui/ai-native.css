@@ -349,6 +349,41 @@
   gap: 8px;
 }
 
+.ai-clarification form {
+  display: grid;
+  gap: 8px;
+}
+
+.ai-clarification textarea {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--panel-solid);
+  font: inherit;
+  line-height: 1.55;
+}
+
+.ai-clarification textarea:focus {
+  outline: 2px solid color-mix(in srgb, var(--cobalt) 24%, transparent);
+  border-color: var(--cobalt);
+}
+
+.ai-clarification form button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  text-align: center;
+}
+
+.ai-clarification form button svg {
+  width: 16px;
+}
+
 .ai-clarification button,
 .ai-failure button {
   min-height: 42px;

@@ -32,7 +32,7 @@
 QuietLens turns a natural-language request into a bounded, inspectable place decision. A user can describe the task, time, area, walking limit, hard constraints, and sensory preferences in their own words. The system then:
 
 1. extracts a visible, editable intent summary;
-2. asks at most one question when the missing answer could materially change the result;
+2. asks one clarification when the interpreted request is incomplete, with a hard limit of one question;
 3. filters a controlled place set with deterministic hard constraints;
 4. retrieves only eligible evidence;
 5. returns two or three comparable decision briefs by default, or one confirmed option when a strict hard constraint leaves only one eligible candidate;
@@ -46,7 +46,7 @@ The product never exposes hidden chain-of-thought. Explanations are limited to c
 ```text
 Natural-language request
 → editable Decision Request
-→ at most one high-value clarification
+→ one clarification when required fields remain incomplete
 → deterministic hard-constraint filter
 → controlled evidence retrieval
 → model-assisted comparison
@@ -62,7 +62,7 @@ AI is necessary for interpreting ambiguous intent, comparing heterogeneous evide
 | --- | --- |
 | Natural-language entry | Describe the situation without translating it into a complex filter form. |
 | Editable intent summary | Inspect and correct the task, arrival time, area, walking limit, and priorities. |
-| One-question maximum | Clarification is used only when it can change the candidate set or first choice. |
+| Mandatory clarification, one-round maximum | If the visible structured request remains incomplete after extraction, ask for the highest-priority missing information once; never ask a second question. |
 | One to three decision briefs | Compare two or three options by default without a fake ten-place ranking; when a strict hard constraint leaves one confirmed option, show that option without padding the result with unknown candidates. |
 | Evidence-backed explanations | Inspect localized decision grounds, verification dates, reliability, and source links without exposing internal model text. |
 | Map-first exploration | Keep all 10 registered cafés selectable without changing the published recommendation order. |
@@ -75,7 +75,7 @@ AI is necessary for interpreting ambiguous intent, comparing heterogeneous evide
 | Model-assisted | Deterministic |
 | --- | --- |
 | Interpret ambiguous natural language | Validate the Decision Request schema |
-| Identify the most valuable clarification target | Enforce the one-question limit |
+| Interpret which unresolved field the user is addressing | Decide whether the request is incomplete, prioritize the clarification target, and enforce the one-question limit |
 | Compare retrieved evidence across candidates | Apply candidate allowlists and hard constraints |
 | Draft bounded reasons and trade-offs | Verify citation existence and evidence eligibility |
 | Understand an incremental correction | Enforce confidence ceilings and render the final brief |

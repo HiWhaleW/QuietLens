@@ -29,6 +29,8 @@ export function decisionReducer(state, action) {
       };
     case "CLARIFICATION_APPLIED":
       return { ...state, stage: "F3", status: "retrieving", request: action.request, clarification: null };
+    case "CLARIFICATION_PARSE_STARTED":
+      return { ...state, stage: "F6", status: "correcting", clarification: null, errorCode: null };
     case "DECISION_STARTED":
       return { ...state, stage: "F3", status: "retrieving", errorCode: null, selectedPlaceId: null };
     case "MANUAL_EDIT_APPLIED":

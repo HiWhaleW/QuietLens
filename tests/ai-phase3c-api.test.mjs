@@ -91,8 +91,20 @@ function environment() {
       QUIETLENS_NOW: () => "2026-08-16T10:00:00+08:00",
       QUIETLENS_MODEL_CLIENT: {
         async callStructured({ schemaName }) {
-          if (schemaName === "quietlens_decision_request_patch") return { value: modelPatch("req-api-flow"), usage: null, response_id: "mock-intent" };
-          if (schemaName === "quietlens_decision_draft") return { value: draft, usage: null, response_id: "mock-reasoner" };
+          if (schemaName === "quietlens_decision_request_patch") {
+            return {
+              value: modelPatch("req-api-flow"),
+              usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+              response_id: "mock-intent",
+            };
+          }
+          if (schemaName === "quietlens_decision_draft") {
+            return {
+              value: draft,
+              usage: { input_tokens: 20, output_tokens: 10, total_tokens: 30 },
+              response_id: "mock-reasoner",
+            };
+          }
           throw new Error(`Unexpected schema ${schemaName}`);
         },
       },
@@ -190,6 +202,10 @@ test("runs the bounded intent and decision API without exposing model text", asy
   assert.equal(recommended.context.places.length, 10);
   assert.ok(runtime.events.some((event) => event.event_name === "intent_parse_succeeded"));
   assert.ok(runtime.events.some((event) => event.event_name === "evidence_verification_succeeded"));
+  const usageEvents = runtime.events.filter((event) => event.event_name === "model_usage_observed");
+  assert.deepEqual(usageEvents.map((event) => event.properties.operation), ["intent_initial", "decision_reasoning"]);
+  assert.ok(usageEvents.every((event) => event.properties.usage_complete === true));
+  assert.deepEqual(usageEvents.map((event) => event.properties.total_tokens), [15, 30]);
   const published = runtime.events.find((event) => event.event_name === "decision_published");
   assert.equal(published.properties.candidate_count, 2);
   assert.equal(published.properties.unknown_count, 2);
@@ -376,6 +392,31 @@ test("enforces explicit out-of-scope areas before clarification", async () => {
   assert.equal(response.status, 200);
   assert.equal(interpreted.request.location.area, "静安寺");
   assert.equal(interpreted.clarification.required, false);
+});
+
+test("keeps an explicit out-of-scope refusal ahead of clarification after model timeout", async () => {
+  const runtime = environment();
+  runtime.env.QUIETLENS_MODEL_CLIENT = {
+    async callStructured() {
+      const error = new Error("Model request timed out");
+      error.code = "MODEL_TIMEOUT";
+      throw error;
+    },
+  };
+
+  const response = await post("/api/decision/interpret", {
+    session_id: "sess-out-of-scope-timeout",
+    request_id: "req-out-of-scope-timeout",
+    user_text: "帮我推荐静安寺附近适合工作的咖啡店。",
+    mode: "initial",
+    page_context: { area: "黄浦区" },
+  }, runtime.env);
+  const interpreted = (await response.json()).data;
+
+  assert.equal(response.status, 200);
+  assert.equal(interpreted.request.location.area, "静安寺");
+  assert.equal(interpreted.clarification.required, false);
+  assert.ok(interpreted.metrics.repair_codes.includes("DETERMINISTIC_OUT_OF_SCOPE_FALLBACK"));
 });
 
 test("normalizes explicit quiet-work evidence into the noise hard constraint", async () => {
@@ -627,8 +668,16 @@ test("normalizes accepted crowding separately from the requested outdoor prefere
     async callStructured() {
       const value = modelPatch();
       value.scalar_updates = [];
-      value.hard_constraints = { action: "keep", value: [], confidence: "low" };
-      value.soft_preferences = { action: "keep", value: [], confidence: "low" };
+      value.hard_constraints = {
+        action: "replace",
+        value: [{ field: "walk_time", operator: "at_most", value: "20" }],
+        confidence: "medium",
+      };
+      value.soft_preferences = {
+        action: "replace",
+        value: [{ field: "walk_time", priority: "high" }],
+        confidence: "medium",
+      };
       value.unknowns = [];
       value.assumptions = [];
       return { value, usage: null, response_id: "mock-accepted-crowding" };
@@ -649,7 +698,7 @@ test("normalizes accepted crowding separately from the requested outdoor prefere
   assert.equal(interpreted.request.task.type, "conversation");
 });
 
-test("adds a medium call-environment preference without clarifying uncertain timing", async () => {
+test("adds a medium call-environment preference and clarifies incomplete timing", async () => {
   const runtime = environment();
   runtime.env.QUIETLENS_MODEL_CLIENT = {
     async callStructured() {
@@ -675,7 +724,8 @@ test("adds a medium call-environment preference without clarifying uncertain tim
   assert.equal(response.status, 200);
   assert.equal(interpreted.request.task.type, "call");
   assert.deepEqual(interpreted.request.soft_preferences, [{ field: "call_environment", priority: "medium" }]);
-  assert.equal(interpreted.clarification.required, false);
+  assert.equal(interpreted.clarification.required, true);
+  assert.equal(interpreted.clarification.target_field, "arrival_time");
 });
 
 test("treats a casual historical-interior request as a medium preference", async () => {
@@ -736,7 +786,7 @@ test("does not promote an implicit garden preference into a hard constraint", as
   assert.equal(response.status, 200);
   assert.deepEqual(interpreted.request.hard_constraints, []);
   assert.deepEqual(interpreted.request.soft_preferences, [{ field: "outdoor_seating", priority: "high" }]);
-  assert.equal(interpreted.versions.intent_normalizer, "explicit-semantic-normalizer-v0.1.5");
+  assert.equal(interpreted.versions.intent_normalizer, "explicit-semantic-normalizer-v0.1.6");
 });
 
 test("preserves an explicit conflicting duration instead of shortening it to fit the deadline", async () => {
@@ -865,6 +915,105 @@ test("applies an absolute walk-limit correction without changing other fields", 
   assert.equal(interpreted.request.location.max_walk_minutes, 20);
   assert.deepEqual(interpreted.request.task, current.task);
   assert.deepEqual(interpreted.request.time, current.time);
+  assert.deepEqual(interpreted.request.hard_constraints, []);
+  assert.deepEqual(interpreted.request.soft_preferences, []);
+});
+
+test("fills every explicit core field supplied in the single clarification answer", async () => {
+  const runtime = environment();
+  runtime.env.QUIETLENS_MODEL_CLIENT = {
+    async callStructured() {
+      const value = modelPatch();
+      value.scalar_updates = [];
+      value.hard_constraints = { action: "keep", value: [], confidence: "low" };
+      value.soft_preferences = { action: "keep", value: [], confidence: "low" };
+      value.unknowns = [];
+      return { value, usage: null, response_id: "mock-single-clarification-answer" };
+    },
+  };
+  const current = createEmptyDecisionRequest("req-single-clarification-answer");
+
+  const response = await post("/api/decision/interpret", {
+    session_id: "sess-single-clarification-answer",
+    request_id: current.request_id,
+    user_text: "明天下午两点低刺激休息90分钟，最多步行15分钟",
+    mode: "correction",
+    current_request: current,
+    clarification_already_asked: true,
+    page_context: { area: "黄浦区" },
+  }, runtime.env);
+  const interpreted = (await response.json()).data;
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(interpreted.request.task, { type: "recovery", duration_minutes: 90 });
+  assert.equal(interpreted.request.time.arrival_at, "2026-08-17T14:00:00+08:00");
+  assert.equal(interpreted.request.location.max_walk_minutes, 15);
+  assert.deepEqual(interpreted.request.unknowns, []);
+  assert.deepEqual(interpreted.request.hard_constraints, []);
+  assert.equal(interpreted.clarification.required, false);
+  assert.equal(interpreted.versions.intent_normalizer, "explicit-semantic-normalizer-v0.1.6");
+});
+
+test("does not reinterpret incidental core words after those fields are complete", async () => {
+  const runtime = environment();
+  runtime.env.QUIETLENS_MODEL_CLIENT = {
+    async callStructured() {
+      const value = modelPatch();
+      value.scalar_updates = [];
+      value.hard_constraints = { action: "keep", value: [], confidence: "low" };
+      value.soft_preferences = { action: "keep", value: [], confidence: "low" };
+      value.unknowns = [];
+      return { value, usage: null, response_id: "mock-incidental-core-word" };
+    },
+  };
+  const current = createEmptyDecisionRequest("req-incidental-core-word");
+  current.task = { type: "focus", duration_minutes: 90 };
+  current.time = {
+    arrival_at: "2026-08-17T14:00:00+08:00",
+    hard_leave_at: null,
+    original_phrase: "明天下午两点到店",
+  };
+  current.location.max_walk_minutes = 15;
+  current.unknowns = [];
+
+  const response = await post("/api/decision/interpret", {
+    session_id: "sess-incidental-core-word",
+    request_id: current.request_id,
+    user_text: "插座现在比安静更重要",
+    mode: "correction",
+    current_request: current,
+    clarification_already_asked: true,
+    page_context: { area: "黄浦区" },
+  }, runtime.env);
+  const interpreted = (await response.json()).data;
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(interpreted.request.task, current.task);
+  assert.deepEqual(interpreted.request.time, current.time);
+});
+
+test("does not manufacture an evidence gap from an explicitly resolved attribute word", async () => {
+  const runtime = environment();
+  runtime.env.QUIETLENS_MODEL_CLIENT = {
+    async callStructured() {
+      const value = modelPatch();
+      value.unknowns = ["seating"];
+      return { value, usage: null, response_id: "mock-spurious-seating-gap" };
+    },
+  };
+
+  const response = await post("/api/decision/interpret", {
+    session_id: "sess-spurious-seating-gap",
+    request_id: "req-spurious-seating-gap",
+    user_text: "只考虑有户外座位证据的地方。补充：专注工作90分钟，明天下午两点到店，最多步行15分钟。",
+    mode: "initial",
+    page_context: { area: "黄浦区" },
+  }, runtime.env);
+  const interpreted = (await response.json()).data;
+
+  assert.equal(response.status, 200);
+  assert.ok(!interpreted.request.unknowns.includes("seating"));
+  assert.equal(interpreted.clarification.required, false);
 });
 
 test("prioritizes explicit uncertainty over generic missing fields", async () => {
@@ -880,9 +1029,12 @@ test("prioritizes explicit uncertainty over generic missing fields", async () =>
     runtime.env.QUIETLENS_MODEL_CLIENT = {
       async callStructured() {
         const value = modelPatch();
-        value.scalar_updates = target === "call_environment"
-          ? [{ field: "hard_leave_at", action: "set", value: "2026-08-16T15:30:00+08:00", confidence: "medium" }]
-          : [];
+        value.scalar_updates = [
+          ...modelPatch().scalar_updates,
+          ...(target === "call_environment"
+            ? [{ field: "hard_leave_at", action: "set", value: "2026-08-16T15:30:00+08:00", confidence: "medium" }]
+            : []),
+        ];
         value.hard_constraints = { action: "keep", value: [], confidence: "low" };
         value.soft_preferences = {
           action: "replace",
@@ -973,14 +1125,15 @@ test("preserves an explicit in-scope neighborhood when the model misses it", asy
 
   assert.equal(response.status, 200);
   assert.equal(interpreted.request.location.area, "外滩");
-  assert.equal(interpreted.versions.intent_normalizer, "explicit-semantic-normalizer-v0.1.5");
+  assert.equal(interpreted.versions.intent_normalizer, "explicit-semantic-normalizer-v0.1.6");
 });
 
-test("does not ask about a generic missing field without a high-impact ambiguity", async () => {
+test("asks once when a generic field remains missing", async () => {
   const runtime = environment();
   runtime.env.QUIETLENS_MODEL_CLIENT = {
     async callStructured() {
       const value = modelPatch();
+      value.scalar_updates = value.scalar_updates.filter((update) => update.field !== "max_walk_minutes");
       value.unknowns = ["walk_time"];
       return { value, usage: null, response_id: "mock-generic-unknown" };
     },
@@ -996,7 +1149,8 @@ test("does not ask about a generic missing field without a high-impact ambiguity
   const interpreted = (await response.json()).data;
 
   assert.equal(response.status, 200);
-  assert.equal(interpreted.clarification.required, false);
+  assert.equal(interpreted.clarification.required, true);
+  assert.equal(interpreted.clarification.target_field, "walk_time");
   assert.deepEqual(interpreted.request.unknowns, ["walk_time"]);
 });
 
@@ -1005,12 +1159,15 @@ test("clarifies a walk range that the user says will change the choice", async (
   runtime.env.QUIETLENS_MODEL_CLIENT = {
     async callStructured() {
       const value = modelPatch();
-      value.scalar_updates = [{
-        field: "location_area",
-        action: "set",
-        value: "外滩",
-        confidence: "high",
-      }];
+      value.scalar_updates = [
+        ...modelPatch().scalar_updates,
+        {
+          field: "location_area",
+          action: "set",
+          value: "外滩",
+          confidence: "high",
+        },
+      ];
       value.hard_constraints = { action: "keep", value: [], confidence: "low" };
       value.soft_preferences = { action: "keep", value: [], confidence: "low" };
       value.unknowns = ["max_walk_minutes"];
@@ -1031,6 +1188,7 @@ test("clarifies a walk range that the user says will change the choice", async (
   assert.equal(response.status, 200);
   assert.equal(interpreted.clarification.required, true);
   assert.equal(interpreted.clarification.target_field, "walk_time");
+  assert.equal(interpreted.request.location.max_walk_minutes, null);
 });
 
 test("keeps the original planned duration when an earlier hard departure conflicts", async () => {
@@ -1148,6 +1306,88 @@ test("falls back to versioned explicit critical constraints after model timeout"
   assert.ok(interpreted.metrics.repair_codes.includes("MODEL_TIMEOUT"));
   assert.ok(interpreted.metrics.repair_codes.includes("DETERMINISTIC_CRITICAL_FALLBACK"));
   assert.equal(interpreted.versions.intent_fallback, "critical-constraint-fallback-v0.1.0");
+});
+
+test("preserves explicit uncertainty when the model fallback also extracts preferences", async () => {
+  const runtime = environment();
+  runtime.env.QUIETLENS_MODEL_CLIENT = {
+    async callStructured() {
+      const error = new Error("Model request timed out");
+      error.code = "MODEL_TIMEOUT";
+      throw error;
+    },
+  };
+
+  const response = await post("/api/decision/interpret", {
+    session_id: "sess-uncertainty-fallback",
+    request_id: "req-uncertainty-fallback",
+    user_text: "下午见朋友，希望环境合适，不过安静到底多重要我没想好。补充：明天下午两点到店，计划停留90分钟，最多步行15分钟。",
+    mode: "initial",
+    page_context: { area: "黄浦区" },
+  }, runtime.env);
+  const interpreted = (await response.json()).data;
+
+  assert.equal(response.status, 200);
+  assert.equal(interpreted.clarification.required, true);
+  assert.equal(interpreted.clarification.target_field, "noise");
+  assert.ok(interpreted.request.unknowns.includes("noise"));
+  assert.ok(!interpreted.request.soft_preferences.some((item) => item.field === "noise"));
+});
+
+test("recovers a phone task before clarifying its in-store environment", async () => {
+  const runtime = environment();
+  runtime.env.QUIETLENS_MODEL_CLIENT = {
+    async callStructured() {
+      const error = new Error("Model request timed out");
+      error.code = "MODEL_TIMEOUT";
+      throw error;
+    },
+  };
+
+  const response = await post("/api/decision/interpret", {
+    session_id: "sess-call-environment-fallback",
+    request_id: "req-call-environment-fallback",
+    user_text: "下午有电话，是否必须留在店内还没确定。补充：计划停留90分钟，明天下午两点到店，最多步行15分钟。",
+    mode: "initial",
+    page_context: { area: "黄浦区" },
+  }, runtime.env);
+  const interpreted = (await response.json()).data;
+
+  assert.equal(response.status, 200);
+  assert.equal(interpreted.request.task.type, "call");
+  assert.equal(interpreted.clarification.required, true);
+  assert.equal(interpreted.clarification.target_field, "call_environment");
+});
+
+test("keeps an explicit walk limit out of soft preferences", async () => {
+  const runtime = environment();
+  runtime.env.QUIETLENS_MODEL_CLIENT = {
+    async callStructured() {
+      const value = modelPatch();
+      value.soft_preferences = {
+        action: "replace",
+        value: [
+          { field: "daylight", priority: "high" },
+          { field: "walk_time", priority: "high" },
+        ],
+        confidence: "high",
+      };
+      return { value, usage: null, response_id: "mock-walk-limit-preference" };
+    },
+  };
+
+  const response = await post("/api/decision/interpret", {
+    session_id: "sess-walk-limit-preference",
+    request_id: "req-walk-limit-preference",
+    user_text: "明天下午两点在黄浦工作90分钟，自然光重要，最多步行15分钟。",
+    mode: "initial",
+    page_context: { area: "黄浦区" },
+  }, runtime.env);
+  const interpreted = (await response.json()).data;
+
+  assert.equal(response.status, 200);
+  assert.equal(interpreted.request.location.max_walk_minutes, 15);
+  assert.deepEqual(interpreted.request.soft_preferences, [{ field: "daylight", priority: "high" }]);
 });
 
 test("returns a formal model-not-configured state instead of a deterministic recommendation", async () => {

@@ -51,7 +51,7 @@ const SOFT_PREFERENCE_SIGNAL = /重要|优先|偏好|希望|最好|想|找|有�
 const EXPLICIT_TIME_CONFLICT_NORMALIZER_VERSION = "explicit-time-conflict-normalizer-v0.1.2";
 const EXPLICIT_CORRECTION_NORMALIZER_VERSION = "explicit-correction-normalizer-v0.1.0";
 const EXPLICIT_UNKNOWN_NORMALIZER_VERSION = "explicit-unknown-normalizer-v0.2.0";
-const EXPLICIT_SEMANTIC_NORMALIZER_VERSION = "explicit-semantic-normalizer-v0.1.5";
+const EXPLICIT_SEMANTIC_NORMALIZER_VERSION = "explicit-semantic-normalizer-v0.1.6";
 const DEFAULT_INTENT_TIMEOUT_MS = 7000;
 const NON_NULLABLE_SCALAR_FIELDS = new Set(["task_type", "location_area"]);
 const CHINESE_NUMBER = {
@@ -141,6 +141,15 @@ function clarificationTarget(_patch, deterministicTarget = null) {
   return deterministicTarget ?? null;
 }
 
+function sanitizeModelUnknowns(patch, deterministicTarget = null) {
+  const alwaysAllowed = new Set(["task", "task_type", "duration", "duration_minutes", "arrival_time", "arrival_at", "location", "location_area", "walk_time", "max_walk_minutes"]);
+  patch.unknowns = patch.unknowns.filter((field) => (
+    alwaysAllowed.has(field)
+    || field === deterministicTarget
+  ));
+  return patch;
+}
+
 function repairIssue(error) {
   return {
     code: error.code ?? "MODEL_PATCH_INVALID",
@@ -196,6 +205,13 @@ function explicitOutOfScopeArea(userText) {
     if (match) return label === "$&" ? match[0] : label;
   }
   return null;
+}
+
+function explicitOutOfScopePatch(requestId, mode, area) {
+  const patch = createKeepPatch(requestId, mode);
+  patch.location_area = { action: "set", value: area, confidence: "high" };
+  patch.unknowns = [];
+  return patch;
 }
 
 function normalizeSafetyCriticalIntent(patch, userText) {
@@ -254,11 +270,13 @@ function removeImplicitHardConstraints(patch, userText, mode) {
   return { patch, applied: true };
 }
 
-function normalizeExplicitTask(patch, userText, mode) {
-  if (mode !== "initial") return { patch, applied: false };
+function normalizeExplicitTask(patch, userText, mode, currentRequest) {
+  if (mode === "correction" && !currentRequest.unknowns.includes("task")) {
+    return { patch, applied: false };
+  }
   let task = null;
   const focusSignal = /(?:工作|专注|写方案|处理文档|看纸质|画草图|读材料|带电脑|慢慢看东西)/.test(userText);
-  const callSignal = /(?:线上会议|接一个电话|通话)/.test(userText);
+  const callSignal = /(?:线上会议|电话|通话)/.test(userText);
   const callIsLaterEvent = focusSignal
     && /(?:之后|然后|接着|还有|稍后|\d{1,2}(?::\d{2}|点半?)).{0,16}(?:线上会议|会议|电话|通话)/.test(userText);
   if (callSignal && !callIsLaterEvent) task = "call";
@@ -319,6 +337,11 @@ function normalizeExplicitWalkLimit(patch, userText, mode) {
   if (patch.hard_constraints.action === "replace") {
     patch.hard_constraints.value = patch.hard_constraints.value.filter(
       (constraint) => constraint.field !== "walk_time",
+    );
+  }
+  if (patch.soft_preferences.action === "replace") {
+    patch.soft_preferences.value = patch.soft_preferences.value.filter(
+      (preference) => preference.field !== "walk_time",
     );
   }
   return { patch, applied: true };
@@ -457,6 +480,16 @@ function normalizeExplicitCorrection(patch, userText, mode, currentRequest) {
     const minutes = parseChineseInteger(walkMatch[1]);
     if (Number.isInteger(minutes) && minutes >= 1 && minutes <= 90) {
       patch.max_walk_minutes = { action: "set", value: minutes, confidence: "high" };
+      if (patch.hard_constraints.action === "replace") {
+        patch.hard_constraints.value = patch.hard_constraints.value.filter(
+          (constraint) => constraint.field !== "walk_time",
+        );
+      }
+      if (patch.soft_preferences.action === "replace") {
+        patch.soft_preferences.value = patch.soft_preferences.value.filter(
+          (preference) => preference.field !== "walk_time",
+        );
+      }
       applied = true;
     }
   }
@@ -476,7 +509,19 @@ function normalizeExplicitUnknown(patch, userText, mode) {
     ["crowding", /(?:人流|拥挤|排队)/],
     ["daylight", /(?:自然光|采光)/],
   ];
-  const target = signals.find(([, signal]) => signal.test(userText))?.[0] ?? null;
+  const matchedSignals = signals
+    .map(([field, signal]) => ({ field, index: userText.search(signal) }))
+    .filter(({ index }) => index >= 0);
+  const uncertaintyPositions = [...userText.matchAll(/(?:是否|不知道|没想好|还没决定|不确定|未确认|还没确认|会影响|会改变|能不能|可不可以|可能|也可能)/g)]
+    .map((match) => match.index);
+  const target = uncertaintyPositions.length > 0
+    ? matchedSignals
+      .map((item) => ({
+        ...item,
+        distance: Math.min(...uncertaintyPositions.map((position) => Math.abs(position - item.index))),
+      }))
+      .sort((left, right) => left.distance - right.distance || left.index - right.index)[0]?.field ?? null
+    : matchedSignals[0]?.field ?? null;
   if (!target) return { patch, applied: false, target: null };
   const strongUncertainty = /(?:是否|不知道|没想好|还没决定|不确定|未确认|还没确认|会影响|会改变|能不能|可不可以)/.test(userText);
   const callLocationResolved = /(?:会议|电话|通话).{0,12}(?:在店里|在店内|留在店里|提前离店|先离店|离开咖啡店)|(?:在店里|在店内|留在店里|提前离店|先离店|离开咖啡店).{0,12}(?:会议|电话|通话)/.test(userText);
@@ -497,6 +542,9 @@ function normalizeExplicitUnknown(patch, userText, mode) {
   }
   if (patch.soft_preferences.action === "replace") {
     patch.soft_preferences.value = patch.soft_preferences.value.filter((item) => item.field !== target);
+  }
+  if (target === "walk_time") {
+    patch.max_walk_minutes = { action: "clear", value: null, confidence: "high" };
   }
   if (target === "call_environment"
     && !/(?:必须|最晚|硬截止).{0,12}(?:离开|离店|走)|(?:离开|离店|走).{0,12}(?:必须|最晚|硬截止)/.test(userText)) {
@@ -538,11 +586,42 @@ function explicitDurationMinutes(userText, clocks) {
   return null;
 }
 
-function isoAtLocalClock(now, clock) {
-  const date = String(now).slice(0, 10);
+function isoAtLocalClock(now, clock, userText = "") {
+  const base = new Date(`${String(now).slice(0, 10)}T00:00:00+08:00`);
+  if (/明天/.test(userText)) base.setUTCDate(base.getUTCDate() + 1);
+  const date = base.toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai" });
   const hour = String(clock.hour).padStart(2, "0");
   const minute = String(clock.minute).padStart(2, "0");
   return `${date}T${hour}:${minute}:00+08:00`;
+}
+
+function normalizeExplicitCoreFields(patch, userText, mode, currentRequest, currentTime) {
+  let applied = false;
+  const maySetDuration = mode === "initial" || currentRequest.unknowns.includes("duration");
+  const maySetArrival = mode === "initial" || currentRequest.unknowns.includes("arrival_time");
+  const clocks = clockMatches(userText);
+  const duration = explicitDurationMinutes(userText, clocks);
+  if (maySetDuration && duration && duration >= 1 && duration <= 480) {
+    patch.duration_minutes = { action: "set", value: duration, confidence: "high" };
+    applied = true;
+  }
+  if (maySetArrival && clocks.length > 0) {
+    const arrivalClock = clocks.find((clock) => (
+      /^\s*(?:到店|开始)/.test(userText.slice(clock.end, clock.end + 8))
+    )) ?? clocks[0];
+    patch.arrival_at = {
+      action: "set",
+      value: isoAtLocalClock(currentTime, arrivalClock, userText),
+      confidence: "high",
+    };
+    patch.time_original_phrase = { action: "set", value: userText, confidence: "high" };
+    applied = true;
+  } else if (maySetArrival && /(?:现在|马上|立刻|现在就)/.test(userText)) {
+    patch.arrival_at = { action: "set", value: currentTime, confidence: "high" };
+    patch.time_original_phrase = { action: "set", value: userText, confidence: "high" };
+    applied = true;
+  }
+  return { patch, applied };
 }
 
 function normalizeExplicitTimeConflict(patch, userText, mode, currentTime) {
@@ -604,6 +683,7 @@ export async function interpretIntent({
   const stageTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0
     ? timeoutMs
     : DEFAULT_INTENT_TIMEOUT_MS;
+  const outsideArea = mode === "initial" ? explicitOutOfScopeArea(userText) : null;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -622,23 +702,19 @@ export async function interpretIntent({
         }),
       });
       if (result.usage) usages.push(result.usage);
-      const outsideArea = explicitOutOfScopeArea(userText);
       let patch = outsideArea && mode === "initial"
-        ? (() => {
-            const scopedPatch = createKeepPatch(requestId, mode);
-            scopedPatch.location_area = { action: "set", value: outsideArea, confidence: "high" };
-            scopedPatch.unknowns = [];
-            return scopedPatch;
-          })()
+        ? explicitOutOfScopePatch(requestId, mode, outsideArea)
         : normalizeSafetyCriticalIntent(expandModelPatch(result.value, requestId, mode), userText);
       const preferenceNormalization = normalizeExplicitPreferences(patch, userText, mode);
       patch = preferenceNormalization.patch;
       const implicitHardConstraintNormalization = removeImplicitHardConstraints(patch, userText, mode);
       patch = implicitHardConstraintNormalization.patch;
-      const taskNormalization = normalizeExplicitTask(patch, userText, mode);
+      const taskNormalization = normalizeExplicitTask(patch, userText, mode, currentRequest);
       patch = taskNormalization.patch;
       const locationNormalization = normalizeExplicitLocation(patch, userText);
       patch = locationNormalization.patch;
+      const coreNormalization = normalizeExplicitCoreFields(patch, userText, mode, currentRequest, now);
+      patch = coreNormalization.patch;
       const criticalNormalization = normalizeExplicitCriticalConstraints(patch, userText, mode);
       patch = criticalNormalization.patch;
       const nonRequirementNormalization = normalizeExplicitNonRequirements(patch, userText, mode);
@@ -651,6 +727,7 @@ export async function interpretIntent({
       patch = correctionNormalization.patch;
       const unknownNormalization = normalizeExplicitUnknown(patch, userText, mode);
       patch = unknownNormalization.patch;
+      patch = sanitizeModelUnknowns(patch, unknownNormalization.target);
       const timeNormalization = normalizeExplicitTimeConflict(patch, userText, mode, now);
       patch = timeNormalization.patch;
       const validation = validateContract("DecisionRequestPatch", patch);
@@ -702,28 +779,43 @@ export async function interpretIntent({
         repairIssues.push(repairIssue(error));
       }
       const eligibleForFallback = FALLBACK_ELIGIBLE_ERRORS.has(error.code);
-      const unknownFallback = eligibleForFallback
-        ? normalizeExplicitUnknown(createKeepPatch(requestId, mode), userText, mode)
-        : { patch: null, applied: false, target: null };
-      let fallback = unknownFallback.applied
-        ? unknownFallback.patch
-        : eligibleForFallback
-          ? criticalConstraintFallback(userText, requestId, mode)
-          : null;
-      const semanticFallbackPatch = createKeepPatch(requestId, mode);
-      const semanticPreferenceFallback = eligibleForFallback && !fallback
+      if (eligibleForFallback && outsideArea) {
+        repairCodes.push("DETERMINISTIC_OUT_OF_SCOPE_FALLBACK");
+        return {
+          patch: explicitOutOfScopePatch(requestId, mode, outsideArea),
+          usage: usages,
+          model_calls: modelCalls,
+          repair_codes: repairCodes,
+          repair_issues: repairIssues,
+          clarification_target: null,
+          response_id: null,
+          model_version: model,
+          prompt_version: INTENT_PROMPT_VERSION,
+          fallback_version: EXPLICIT_SEMANTIC_NORMALIZER_VERSION,
+          normalizer_version: EXPLICIT_SEMANTIC_NORMALIZER_VERSION,
+        };
+      }
+      let fallback = eligibleForFallback
+        ? criticalConstraintFallback(userText, requestId, mode)
+        : null;
+      const semanticFallbackPatch = fallback ?? createKeepPatch(requestId, mode);
+      const semanticPreferenceFallback = eligibleForFallback
         ? normalizeExplicitPreferences(semanticFallbackPatch, userText, mode)
         : { patch: semanticFallbackPatch, applied: false };
-      const semanticTaskFallback = eligibleForFallback && !fallback
-        ? normalizeExplicitTask(semanticPreferenceFallback.patch, userText, mode)
+      const semanticTaskFallback = eligibleForFallback
+        ? normalizeExplicitTask(semanticPreferenceFallback.patch, userText, mode, currentRequest)
         : { patch: semanticPreferenceFallback.patch, applied: false };
-      const semanticLocationFallback = eligibleForFallback && !fallback
+      const semanticLocationFallback = eligibleForFallback
         ? normalizeExplicitLocation(semanticTaskFallback.patch, userText)
         : { patch: semanticTaskFallback.patch, applied: false };
+      const coreFallback = eligibleForFallback
+        ? normalizeExplicitCoreFields(semanticLocationFallback.patch, userText, mode, currentRequest, now)
+        : { patch: semanticLocationFallback.patch, applied: false };
       const semanticFallbackApplied = semanticPreferenceFallback.applied
         || semanticTaskFallback.applied
-        || semanticLocationFallback.applied;
-      fallback = !fallback && semanticFallbackApplied ? semanticLocationFallback.patch : fallback;
+        || semanticLocationFallback.applied
+        || coreFallback.applied;
+      fallback = semanticFallbackApplied ? coreFallback.patch : fallback;
       const walkFallback = FALLBACK_ELIGIBLE_ERRORS.has(error.code)
         ? normalizeExplicitWalkLimit(fallback ?? createKeepPatch(requestId, mode), userText, mode)
         : { patch: fallback, applied: false };
@@ -736,6 +828,10 @@ export async function interpretIntent({
         ? normalizeExplicitTimeConflict(fallback ?? createKeepPatch(requestId, mode), userText, mode, now)
         : { patch: fallback, applied: false };
       fallback = timeFallback.applied ? timeFallback.patch : fallback;
+      const unknownFallback = FALLBACK_ELIGIBLE_ERRORS.has(error.code)
+        ? normalizeExplicitUnknown(fallback ?? createKeepPatch(requestId, mode), userText, mode)
+        : { patch: fallback, applied: false, target: null };
+      fallback = unknownFallback.applied ? unknownFallback.patch : fallback;
       if (fallback) {
         repairCodes.push(unknownFallback.applied
           ? "DETERMINISTIC_EXPLICIT_UNKNOWN_FALLBACK"

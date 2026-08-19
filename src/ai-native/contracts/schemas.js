@@ -1,6 +1,6 @@
 export const CONTRACT_SCHEMA_VERSION = "1.0.0";
 export const EVIDENCE_STORE_VERSION = "0.1.0";
-export const EVALUATION_SET_VERSION = "0.1.5";
+export const EVALUATION_SET_VERSION = "0.1.6";
 export const EVENT_SCHEMA_VERSION = "1.0.0";
 export const AI_FLOW_SCHEMA_VERSION = "0.1.0";
 
@@ -508,7 +508,11 @@ export const evaluationCaseSchema = {
           required: ["required", "acceptable_target_fields"],
           properties: {
             required: { type: "boolean" },
-            acceptable_target_fields: { type: "array", items: { enum: EVIDENCE_ATTRIBUTES }, uniqueItems: true },
+            acceptable_target_fields: {
+              type: "array",
+              items: { enum: ["task", "duration", "arrival_time", "location", ...EVIDENCE_ATTRIBUTES] },
+              uniqueItems: true,
+            },
           },
         },
         expected_behavior: {
@@ -683,7 +687,7 @@ export const clarificationDecisionSchema = {
   properties: {
     flow_schema_version: { const: AI_FLOW_SCHEMA_VERSION },
     required: { type: "boolean" },
-    target_field: { enum: [null, ...EVIDENCE_ATTRIBUTES] },
+    target_field: { enum: [null, "task", "duration", "arrival_time", "location", ...EVIDENCE_ATTRIBUTES] },
     question_code: { type: ["string", "null"], pattern: "^[a-z0-9_]+$" },
     option_codes: stringArray,
     conservative_assumption: { type: ["string", "null"] },

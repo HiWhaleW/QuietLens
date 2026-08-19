@@ -1,10 +1,8 @@
-import Ajv from "ajv";
-
 import { CONTRACT_SCHEMAS } from "./schemas.js";
+import * as generatedValidators from "./generatedValidators.js";
 
-const ajv = new Ajv({ allErrors: true, strict: true, allowUnionTypes: true });
 const validators = new Map(
-  Object.entries(CONTRACT_SCHEMAS).map(([name, schema]) => [name, ajv.compile(schema)]),
+  Object.keys(CONTRACT_SCHEMAS).map((name) => [name, generatedValidators[name]]),
 );
 
 function normalizeErrors(errors = []) {
