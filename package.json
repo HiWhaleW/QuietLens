@@ -1,23 +1,40 @@
 {
   "name": "quietlens",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/prepare-sites-build.mjs",
+    "build": "npm run generate:contract-validators && vite build && node scripts/prepare-sites-build.mjs",
+    "generate:contract-validators": "node scripts/generate-contract-validators.mjs",
     "preview": "vite preview",
+    "serve:local": "node --env-file-if-exists=.env.local scripts/serve-local.mjs",
     "test:map": "node --test tests/map-projection.test.mjs",
-    "test:sites": "node --test tests/sites-worker.test.mjs"
+    "test:sites": "node --test tests/sites-worker.test.mjs",
+    "test:evidence": "node --test tests/ai-amap-adapter.test.mjs tests/ai-candidate-evidence-pipeline.test.mjs tests/ai-contracts.test.mjs tests/ai-document-consistency.test.mjs tests/ai-evidence-pipeline-contracts.test.mjs tests/ai-evidence-review-access.test.mjs tests/ai-evidence-review-route.test.mjs tests/ai-evidence-review-service.test.mjs tests/ai-evidence-review-supabase.test.mjs tests/ai-evidence-review-workbench.test.mjs tests/ai-evidence-review-workbench-ui.test.mjs tests/ai-feedback-candidate.test.mjs tests/ai-hard-constraints.test.mjs tests/ai-legacy-poi-expansion.test.mjs tests/ai-source-access-policy.test.mjs && node scripts/run-phase3b-evidence.mjs",
+    "build:evidence-pipeline": "node scripts/build-evidence-v1-pipeline.mjs",
+    "test:analytics": "node --test tests/ai-analytics.test.mjs tests/ai-decision-cost.test.mjs",
+    "test:account": "node --test tests/ai-account-value.test.mjs tests/ai-account-data-rights.test.mjs",
+    "test:ai-eval": "node --test tests/ai-evaluation.test.mjs && node scripts/run-phase3b-eval.mjs",
+    "test:phase3b": "npm run test:evidence && npm run test:analytics && npm run test:account && npm run test:ai-eval",
+    "test:phase3c": "node --test tests/ai-phase3c-core.test.mjs tests/ai-phase3c-api.test.mjs tests/ai-native-removal.test.mjs",
+    "test:phase3d": "npm run test:phase3b && npm run test:phase3c && node --test tests/ai-phase3d.test.mjs && npm run test:sites && npm run test:map",
+    "eval:phase3c:high-risk": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs",
+    "eval:phase3c:all": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs --all",
+    "eval:phase3d:high-risk": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs --phase3d",
+    "eval:phase3d:all": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs --phase3d --all",
+    "check:phase3d": "node scripts/check-phase3d-regression.mjs",
+    "gate:phase3d": "npm run test:phase3d && npm run build && npm run check:phase3d"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.3",
     "@vitejs/plugin-react": "5.0.4",
+    "ajv": "^8.18.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.468.0",
-    "vite": "6.4.2",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "react-leaflet": "^5.0.0"
-  },
-  "devDependencies": {}
+    "react-leaflet": "^5.0.0",
+    "vite": "^6.4.3"
+  }
 }

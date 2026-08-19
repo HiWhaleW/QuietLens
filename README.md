@@ -36,10 +36,10 @@
 QuietLens turns a natural-language request into a bounded, inspectable place decision. A user can describe the task, time, area, walking limit, hard constraints, and sensory preferences in their own words. The system then:
 
 1. extracts a visible, editable intent summary;
-2. asks at most one question when the missing answer could materially change the result;
+2. asks one clarification when the interpreted request is incomplete, with a hard limit of one question;
 3. filters a controlled place set with deterministic hard constraints;
 4. retrieves only eligible evidence;
-5. returns two or three comparable decision briefs;
+5. returns two or three comparable decision briefs by default, or one confirmed option when a strict hard constraint leaves only one eligible candidate;
 6. shows trade-offs, assumptions, unknowns, confidence, and evidence scope; and
 7. accepts a correction without forcing the user to restart.
 
@@ -50,7 +50,7 @@ The product never exposes hidden chain-of-thought. Explanations are limited to c
 ```text
 Natural-language request
 → editable Decision Request
-→ at most one high-value clarification
+→ one clarification when required fields remain incomplete
 → deterministic hard-constraint filter
 → controlled evidence retrieval
 → model-assisted comparison
@@ -66,9 +66,9 @@ AI is necessary for interpreting ambiguous intent, comparing heterogeneous evide
 | --- | --- |
 | Natural-language entry | Describe the situation without translating it into a complex filter form. |
 | Editable intent summary | Inspect and correct the task, arrival time, area, walking limit, and priorities. |
-| One-question maximum | Clarification is used only when it can change the candidate set or first choice. |
-| Two or three decision briefs | Compare a preferred option, a conditional preference, and an alternative without a fake ten-place ranking. |
-| Evidence-backed explanations | See fit reasons, trade-offs, confidence, assumptions, source scope, and unresolved facts. |
+| Mandatory clarification, one-round maximum | If the visible structured request remains incomplete after extraction, ask for the highest-priority missing information once; never ask a second question. |
+| One to three decision briefs | Compare two or three options by default without a fake ten-place ranking; when a strict hard constraint leaves one confirmed option, show that option without padding the result with unknown candidates. |
+| Evidence-backed explanations | Inspect localized decision grounds, verification dates, reliability, and source links without exposing internal model text. |
 | Map-first exploration | Keep all 10 registered cafés selectable without changing the published recommendation order. |
 | Store-specific detail | Open a café to see its role in the current decision and its bounded sensory profile. |
 | Watercolor place reveal | Expand a selected café through an original torn-paper watercolor scene. |
@@ -79,7 +79,7 @@ AI is necessary for interpreting ambiguous intent, comparing heterogeneous evide
 | Model-assisted | Deterministic |
 | --- | --- |
 | Interpret ambiguous natural language | Validate the Decision Request schema |
-| Identify the most valuable clarification target | Enforce the one-question limit |
+| Interpret which unresolved field the user is addressing | Decide whether the request is incomplete, prioritize the clarification target, and enforce the one-question limit |
 | Compare retrieved evidence across candidates | Apply candidate allowlists and hard constraints |
 | Draft bounded reasons and trade-offs | Verify citation existence and evidence eligibility |
 | Understand an incremental correction | Enforce confidence ceilings and render the final brief |
@@ -102,7 +102,7 @@ Requirements:
 
 - Node.js 20+
 - npm
-- a server-side DeepSeek API key for the model-backed decision flow
+- a server-side DeepSeek API key only when exercising the live model-backed decision flow
 
 ```bash
 git clone https://github.com/HiWhaleW/QuietLens.git
@@ -122,6 +122,8 @@ DEEPSEEK_API_KEY=your_key_here
 
 The key is read by the server-side worker. Never prefix it with `VITE_`, expose it to client code, or commit the environment file.
 
+The optional Stage 2 Evidence review boundary remains disabled by default. Supabase project configuration belongs in `.env.local`; a service-role key must remain server-only and must never use a `VITE_` prefix. See `.env.example` for the supported variable names and safe defaults.
+
 For interface-only development:
 
 ```bash
@@ -133,7 +135,9 @@ npm run dev
 - React 19 and Vite 6
 - a bounded Intent Interpreter and Decision Reasoner
 - deterministic request validation, hard-constraint filtering, evidence verification, and rendering
+- versioned Evidence source, snapshot, candidate, conflict, and human-review contracts
 - server-side model calls through a Responses API adapter
+- an optional, default-off Supabase Auth/Postgres reviewer boundary with MFA and append-only audit controls
 - versioned, privacy-minimized analytics that exclude raw requests, precise personal locations, and hidden reasoning
 - three discrete watercolor map boards: Shanghai overview, central city, and Huangpu detail
 - desktop-first interface with a restrained notice below 1180 px
@@ -144,6 +148,8 @@ npm run dev
 ```text
 src/ai-native/       contracts, retrieval, verification, state, and AI-native UI
 worker/              server-side decision routes, model adapters, and analytics
+supabase/             default-off reviewer authorization and audit-ledger migration
+scripts/              reproducible build, evidence, evaluation, and release checks
 public/assets/map/   original watercolor map boards
 public/assets/cafes/ original watercolor café scenes
 tests/               contract, safety, evaluation, analytics, and hosting checks
@@ -153,10 +159,7 @@ media/               public README assets
 ## Validation
 
 ```bash
-npm run test:phase3c
-npm run test:phase3b
-npm run test:analytics
-npm run test:sites
+npm run test:phase3d
 npm run build
 ```
 
@@ -167,6 +170,7 @@ Live-model evaluation requires a local API key and is intentionally separate fro
 - Environment files, local research, internal documentation, generated evaluation reports, and build output are excluded from Git.
 - Raw natural-language requests, exact personal locations, hidden reasoning, and API credentials must not be logged.
 - Model output cannot bypass the place allowlist, evidence eligibility rules, citation checks, or hard constraints.
+- Reviewer identities and service-role credentials remain server-side; the production review API is disabled until MFA, scoped grants, backups, and a controlled rehearsal are verified.
 - The public repository contains no private API key or local machine path.
 
 ## License
