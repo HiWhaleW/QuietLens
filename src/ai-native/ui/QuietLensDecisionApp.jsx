@@ -2,6 +2,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   Armchair,
   ArrowLeft,
+  ArrowRight,
   AudioLines,
   Calculator,
   Check,
@@ -29,6 +30,8 @@ import {
 import { MapStage } from "../../MapStage.jsx";
 import { createAnalyticsEmitter, createRequestId, getSessionId } from "../analytics/emitter.js";
 import { correctDecision, interpretDecision, recommendDecision } from "../client/decisionApi.js";
+import { getCafeSceneMedia, selectScenePrefetchUrls } from "../media/mediaDelivery.js";
+import { getDecodedImageStatus, preloadDecodedImage } from "../media/mediaPrefetch.js";
 import {
   explorationScoreBucket,
   getSensoryReferenceProfile,
@@ -40,6 +43,7 @@ import { buildCandidateCitationView } from "../evidence/citationView.js";
 import { applyClarificationAnswer } from "../intent/clarification.js";
 import { applyManualFieldEdit } from "../intent/manualFieldEdit.js";
 import { decisionReducer, initialDecisionState } from "../state/decisionReducer.js";
+import { sceneNoticeForPlace } from "./scenePresentation.js";
 
 const ROLE_LABELS = { primary: "首选", conditional: "条件首选", alternative: "备选" };
 const CONFIDENCE_LABELS = { high: "高置信", medium: "中置信", low: "低置信" };
@@ -173,7 +177,7 @@ function Header({
   return (
     <header className="ai-topbar">
       <a className="brand" href="#app" aria-label="QuietLens 首页">
-        <span className="brand-mark"><img src="/assets/brand/quietlens-mark.png" alt="" /></span>
+        <span className="brand-mark"><img src="/assets/brand/quietlens-mark-ui-v1.png" alt="" /></span>
         <span className="brand-wordmark">QuietLens</span>
       </a>
       <div className="ai-context" aria-label="当前覆盖范围">
@@ -204,7 +208,7 @@ function Composer({ value, onChange, onSubmit, disabled, compact = false, onFocu
         aria-label={compact ? "补充或纠正本次需求" : "描述这次地点需求"}
       />
       <button type="submit" disabled={disabled || !value.trim()} aria-label="提交需求" title="提交需求">
-        {disabled ? <LoaderCircle className="is-spinning" aria-hidden="true" /> : <Send aria-hidden="true" />}
+        {disabled ? <LoaderCircle className="is-spinning" aria-hidden="true" /> : compact ? <Send aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}
       </button>
     </form>
   );
@@ -298,7 +302,7 @@ function Clarification({ clarification, onAnswer, onTextAnswer, disabled }) {
   );
 }
 
-function CandidateList({ brief, context, selectedId, onSelect }) {
+function CandidateList({ brief, context, selectedId, onSelect, onPrefetch }) {
   const placeById = new Map(context.places.map((place) => [place.place_id, place]));
   const constraintById = new Map(brief.request.hard_constraints.map((constraint) => [constraint.constraint_id, constraint]));
   return (
@@ -320,6 +324,9 @@ function CandidateList({ brief, context, selectedId, onSelect }) {
               key={candidate.place_id}
               type="button"
               className={selectedId === candidate.place_id ? "is-selected" : ""}
+              onMouseEnter={() => onPrefetch(candidate.place_id, "candidate_hover")}
+              onFocus={() => onPrefetch(candidate.place_id, "candidate_focus")}
+              onTouchStart={() => onPrefetch(candidate.place_id, "candidate_touch")}
               onClick={() => onSelect(candidate.place_id, "list")}
             >
               <span className="ai-candidate-rank">{index + 1}</span>
@@ -541,6 +548,7 @@ export function QuietLensDecisionApp() {
   const sessionId = useMemo(() => getSessionId(), []);
   const analyticsContext = useRef({ request_id: requestId, model: "not-invoked", prompt: "not-invoked" });
   const exposed = useRef(new Set());
+  const [sceneStatuses, setSceneStatuses] = useState({});
   analyticsContext.current = {
     request_id: requestId,
     model: state.brief?.versions?.model ?? state.versions?.intent_model ?? "not-invoked",
@@ -585,6 +593,34 @@ export function QuietLensDecisionApp() {
       emit("page_state_viewed", state.stage, { state_code: state.stage.toLowerCase() });
     }
   }, [emit, requestId, state]);
+
+  useEffect(() => {
+    if (state.brief?.status !== "published" || !state.context?.places) return undefined;
+    const urls = selectScenePrefetchUrls(
+      state.context.places,
+      state.brief.candidates.map((candidate) => candidate.place_id),
+    );
+    urls.forEach((url, index) => prefetchSceneUrl(url, index === 0 ? "high" : "low"));
+    return undefined;
+  }, [state.brief, state.context]);
+
+  function prefetchSceneUrl(url, fetchPriority = "low") {
+    if (!url) return;
+    const currentStatus = getDecodedImageStatus(url);
+    setSceneStatuses((current) => current[url] === currentStatus && currentStatus !== "idle"
+      ? current
+      : { ...current, [url]: currentStatus === "idle" ? "loading" : currentStatus });
+    if (currentStatus === "ready" || currentStatus === "failed") return;
+    preloadDecodedImage(url, { fetchPriority })
+      .then(() => setSceneStatuses((current) => ({ ...current, [url]: "ready" })))
+      .catch(() => setSceneStatuses((current) => ({ ...current, [url]: "failed" })));
+  }
+
+  function prefetchPlaceScene(placeId, source = "intent") {
+    const place = state.context?.places?.find((item) => item.place_id === placeId);
+    const url = getCafeSceneMedia(place?.asset)?.scene?.src;
+    prefetchSceneUrl(url, source.includes("click") || source.includes("touch") ? "high" : "low");
+  }
 
   async function runRecommendation(request) {
     dispatch({ type: "DECISION_STARTED" });
@@ -686,6 +722,7 @@ export function QuietLensDecisionApp() {
     const candidate = state.brief.candidates.find((item) => item.place_id === placeId);
     const exploration = state.context?.exploration?.places.find((item) => item.place_id === placeId);
     if (!candidate && !exploration) return;
+    prefetchPlaceScene(placeId, `${source}_click`);
     dispatch({ type: "PLACE_SELECTED", placeId });
     if (candidate) {
       emit("candidate_selected", "F4", { place_id: placeId, role: candidate.role, source });
@@ -723,11 +760,10 @@ export function QuietLensDecisionApp() {
     return [...placeById.values()].map((place) => {
       const match = candidateById.get(place.place_id);
       const exploration = explorationById.get(place.place_id);
-      const explorationConflict = exploration?.eligibility === "rejected"
-        ? "已有条件与本次硬要求冲突"
-        : exploration?.eligibility === "uncertain"
-          ? "部分关键条件尚未核实"
-          : "未进入 AI 本轮 3 个推荐";
+      const media = getCafeSceneMedia(place.asset);
+      const nonRecommendationText = !match && exploration
+        ? nonRecommendationReason(exploration, state.brief.request, state.brief.candidates.length)
+        : null;
       return {
         id: place.place_id,
         name: place.canonical_name,
@@ -735,15 +771,22 @@ export function QuietLensDecisionApp() {
         address: place.address,
         district: "黄浦区",
         position: [place.location.latitude, place.location.longitude],
-        scene: place.asset,
-        conflict: match?.candidate.tradeoffs[0]?.text ?? explorationConflict,
+        scene: media?.scene?.src ?? null,
+        sceneStatus: media?.scene?.src
+          ? sceneStatuses[media.scene.src] ?? getDecodedImageStatus(media.scene.src)
+          : "failed",
+        notice: sceneNoticeForPlace({
+          candidate: match?.candidate ?? null,
+          nonRecommendationText,
+          unknownLabel: (field) => ATTRIBUTE_LABELS[field] ?? field,
+        }),
         role: match?.candidate.role ?? null,
         matchScore: exploration?.score ?? null,
         markerLabel: match ? match.index + 1 : exploration?.score ?? "待核",
         selectable: Boolean(match || exploration),
       };
     });
-  }, [state.brief, state.context]);
+  }, [sceneStatuses, state.brief, state.context]);
   const selectedCafe = mapCafes.find((cafe) => cafe.id === state.selectedPlaceId) ?? null;
   const showRail = state.brief?.status === "published";
   const busy = ["parsing", "retrieving", "correcting"].includes(state.status);
@@ -762,7 +805,7 @@ export function QuietLensDecisionApp() {
 
   return (
     <div className="theme-root" data-theme={theme}>
-      <div className="mobile-notice"><img src="/assets/brand/quietlens-mark.png" alt="" /><h1>QuietLens</h1><p>当前阶段专注桌面决策体验，请使用更宽的视口打开。</p></div>
+      <div className="mobile-notice"><img src="/assets/brand/quietlens-mark-ui-v1.png" alt="" /><h1>QuietLens</h1><p>当前阶段专注桌面决策体验，请使用更宽的视口打开。</p></div>
       <main id="app" className="app-shell ai-shell">
         <Header
           theme={theme}
@@ -777,8 +820,8 @@ export function QuietLensDecisionApp() {
           <aside className="sidebar ai-sidebar">
             {state.stage === "F0" ? (
               <section className="ai-entry">
-                <span className="ai-stage-label"><Sparkles aria-hidden="true" />新决定</span>
-                <h1>你现在需要什么样的地方？</h1>
+                <span className="ai-stage-label">新决定</span>
+                <h1>接下来，想找个地方做什么？</h1>
                 <Composer value={input} onChange={setInput} onSubmit={submitInitial} disabled={busy} />
                 <div className="ai-examples"><button type="button" onClick={() => setInput("明天下午两点，我想在外滩附近专注工作 90 分钟，自然光很重要。")}>限时专注</button><button type="button" onClick={() => setInput("我现在很累，想在黄浦找个低刺激、不要太吵的地方休息。")}>低刺激恢复</button></div>
               </section>
@@ -790,7 +833,7 @@ export function QuietLensDecisionApp() {
                 {state.request && <IntentSummary request={state.request} changes={state.changes} disabled={busy} onEdit={editIntentField} onEditStarted={(row) => emit("intent_field_edit_started", "F1", { field_name: row.kind, previous_state: row.value === "尚未指定" ? "empty" : "set" })} />}
                 {state.stage === "F3" && <ProcessStatus stage="F3" />}
                 {state.stage === "F6" && <ProcessStatus stage="F6" />}
-                {state.brief?.status === "published" && <CandidateList brief={state.brief} context={state.context} selectedId={state.selectedPlaceId} onSelect={selectPlace} />}
+                {state.brief?.status === "published" && <CandidateList brief={state.brief} context={state.context} selectedId={state.selectedPlaceId} onSelect={selectPlace} onPrefetch={prefetchPlaceScene} />}
                 {state.stage === "F7" && <FailureState state={state} onRetry={() => state.request ? runRecommendation(state.request) : reset()} onReset={reset} />}
                 {state.brief?.status === "published" && <div className="ai-correction"><div className="ai-correction-heading"><strong>继续修改本次条件</strong><button type="button" onClick={reset}><RotateCcw aria-hidden="true" />开始新问题</button></div><p>这里会保留上面的任务、时间和硬条件。</p><Composer value={correction} onChange={setCorrection} onSubmit={submitCorrection} disabled={busy} compact onFocus={() => emit("correction_started", "F6", {})} /></div>}
               </>
@@ -803,6 +846,7 @@ export function QuietLensDecisionApp() {
               drawerOpen={false}
               selectedCafe={selectedCafe}
               onSelect={(placeId) => selectPlace(placeId, "map")}
+              onPrefetch={prefetchPlaceScene}
               onClearSelection={() => clearPlace("map_blank")}
               onRegionChange={changeMapRegion}
             />

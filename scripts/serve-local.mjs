@@ -6,7 +6,19 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const clientRoot = path.join(root, "dist", "client");
 const app = (await import(new URL("../dist/server/index.js", import.meta.url))).default;
-const requestedPort = Number(process.argv.find((value) => value.startsWith("--port="))?.split("=")[1] ?? 4173);
+
+function argumentValue(name) {
+  return process.argv.find((value) => value.startsWith(`--${name}=`))?.slice(name.length + 3);
+}
+
+const requestedPort = Number(argumentValue("port") ?? process.env.PORT ?? 4173);
+const requestedHost = argumentValue("host") ?? process.env.HOST ?? "127.0.0.1";
+if (!Number.isSafeInteger(requestedPort) || requestedPort < 1 || requestedPort > 65_535) {
+  throw new Error("PORT_INVALID");
+}
+if (!/^(?:127\.0\.0\.1|0\.0\.0\.0|localhost)$/u.test(requestedHost)) {
+  throw new Error("HOST_INVALID");
+}
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
@@ -51,21 +63,17 @@ const server = createServer(async (incoming, outgoing) => {
       }
       chunks.push(chunk);
     }
-    const url = `http://${incoming.headers.host ?? `127.0.0.1:${requestedPort}`}${incoming.url}`;
+    const forwardedProtocol = incoming.headers["x-forwarded-proto"];
+    const protocol = forwardedProtocol === "https" ? "https" : "http";
+    const url = `${protocol}://${incoming.headers.host ?? `127.0.0.1:${requestedPort}`}${incoming.url}`;
     const request = new Request(url, {
       method: incoming.method,
       headers: incoming.headers,
       body: chunks.length ? Buffer.concat(chunks) : undefined,
     });
     const response = await app.fetch(request, {
+      ...process.env,
       ASSETS: { fetch: serveAsset },
-      DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
-      QL_INTENT_MODEL: process.env.QL_INTENT_MODEL,
-      QL_REASONING_MODEL: process.env.QL_REASONING_MODEL,
-      QL_INTENT_TIMEOUT_MS: process.env.QL_INTENT_TIMEOUT_MS,
-      QL_REASONING_TIMEOUT_MS: process.env.QL_REASONING_TIMEOUT_MS,
-      QL_RATE_LIMIT_MAX: process.env.QL_RATE_LIMIT_MAX,
-      QL_RATE_LIMIT_WINDOW_MS: process.env.QL_RATE_LIMIT_WINDOW_MS,
     });
     outgoing.writeHead(response.status, Object.fromEntries(response.headers));
     outgoing.end(Buffer.from(await response.arrayBuffer()));
@@ -75,6 +83,11 @@ const server = createServer(async (incoming, outgoing) => {
   }
 });
 
-server.listen(requestedPort, "127.0.0.1", () => {
-  console.log(`QuietLens local server: http://127.0.0.1:${requestedPort}`);
+server.listen(requestedPort, requestedHost, () => {
+  const visibleHost = requestedHost === "0.0.0.0" ? "127.0.0.1" : requestedHost;
+  console.log(`QuietLens server: http://${visibleHost}:${requestedPort}`);
 });
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => server.close(() => process.exit(0)));
+}

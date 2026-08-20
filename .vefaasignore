@@ -1,0 +1,16 @@
+.git/
+.vefaas/
+.env
+.env.*
+!.env.example
+.research/
+.legacy-reference/
+.venv/
+node_modules/
+coverage/
+docs/
+AGENTS.md
+design-qa.md
+/media/
+*.log
+.DS_Store

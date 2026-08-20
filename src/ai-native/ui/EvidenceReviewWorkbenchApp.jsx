@@ -240,10 +240,10 @@ export function EvidenceReviewWorkbenchApp() {
 
   return (
     <div className="theme-root" data-theme={theme}>
-      <div className="mobile-notice"><img src="/assets/brand/quietlens-mark.png" alt="" /><h1>Evidence Review</h1><p>审核工作台当前仅支持桌面视口。</p></div>
+      <div className="mobile-notice"><img src="/assets/brand/quietlens-mark-ui-v1.png" alt="" /><h1>Evidence Review</h1><p>审核工作台当前仅支持桌面视口。</p></div>
       <main className="review-app-shell">
         <header className="review-topbar">
-          <a href="/" className="review-brand"><span className="brand-mark"><img src="/assets/brand/quietlens-mark.png" alt="" /></span><span><strong>QuietLens</strong><small>Evidence Review · local</small></span></a>
+          <a href="/" className="review-brand"><span className="brand-mark"><img src="/assets/brand/quietlens-mark-ui-v1.png" alt="" /></span><span><strong>QuietLens</strong><small>Evidence Review · local</small></span></a>
           <div className="review-environment"><FlaskConical aria-hidden="true" /><span><strong>synthetic_fixture</strong>仅用于本地工程演练</span></div>
           <nav><a href="/"><ArrowLeft aria-hidden="true" />返回决策界面</a><button type="button" onClick={() => setTheme((value) => value === "light" ? "dark" : "light")}>{theme === "light" ? <Moon aria-hidden="true" /> : <SunMedium aria-hidden="true" />}{theme === "light" ? "夜间" : "日间"}</button></nav>
         </header>
