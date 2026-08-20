@@ -1,27 +1,27 @@
 @import "leaflet/dist/leaflet.css";
 
 :root {
-  color: #17202b;
-  background: #fcfcf9;
+  color: #27302d;
+  background: #faf9f4;
   font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --ink: #17202b;
-  --cobalt: #0754b8;
-  --cobalt-dark: #063f91;
-  --sun: #f4c62d;
-  --river: #a8d4ed;
-  --paper: #fcfcf9;
-  --map-paper: #fbfaf4;
-  --line: #d9dee5;
-  --muted: #657080;
-  --panel: rgba(252, 252, 249, 0.98);
-  --panel-solid: #fcfcf9;
-  --hover: #f2f5f7;
-  --soft-blue: #edf3fb;
-  --list-line: #e4e8ec;
+  --ink: #27302d;
+  --cobalt: #176b9c;
+  --cobalt-dark: #145b85;
+  --sun: #e8c86a;
+  --river: #a8c5d7;
+  --paper: #faf9f4;
+  --map-paper: #faf9f4;
+  --line: #d8d7d0;
+  --muted: #717977;
+  --panel: rgba(250, 249, 244, 0.98);
+  --panel-solid: #faf9f4;
+  --hover: #f1f0e9;
+  --soft-blue: #edf2f1;
+  --list-line: #e3e1da;
   --shadow: rgba(23, 32, 43, 0.13);
-  --header-height: 78px;
+  --header-height: 94px;
   --sidebar-width: clamp(320px, 23.5vw, 360px);
   --drawer-width: clamp(360px, 25.8vw, 400px);
 }
@@ -745,6 +745,57 @@ input:focus-visible {
   filter: drop-shadow(0 10px 9px rgba(65, 91, 119, 0.1));
   transform-origin: 47% 56%;
   z-index: 2;
+}
+
+.cafe-scene-full {
+  z-index: 2;
+}
+
+.cafe-scene-placeholder {
+  position: absolute;
+  top: 70px;
+  left: 0;
+  z-index: 2;
+  display: grid;
+  width: 380px;
+  height: 270px;
+  place-content: center;
+  gap: 8px;
+  color: rgba(47, 68, 82, 0.72);
+  text-align: center;
+  background:
+    repeating-linear-gradient(112deg, rgba(255, 255, 255, 0.2) 0 3px, rgba(205, 197, 177, 0.08) 3px 5px),
+    linear-gradient(105deg, rgba(255, 255, 255, 0.78), rgba(238, 234, 222, 0.94)),
+    var(--map-paper);
+  clip-path: polygon(7% 7%, 20% 2%, 33% 6%, 48% 1%, 62% 5%, 78% 2%, 94% 8%, 99% 23%, 96% 39%, 100% 53%, 96% 68%, 99% 84%, 91% 96%, 76% 99%, 62% 95%, 46% 100%, 31% 96%, 15% 99%, 3% 90%, 1% 73%, 5% 57%, 0 42%, 4% 25%);
+}
+
+.cafe-scene-placeholder span {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+}
+
+.cafe-scene-placeholder strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.cafe-scene-placeholder.is-loading::after {
+  width: 96px;
+  height: 2px;
+  margin: 8px auto 0;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgba(72, 111, 139, 0.55), transparent);
+  animation: cafe-scene-loading 1.1s ease-in-out infinite;
+}
+
+.cafe-scene-placeholder.is-failed {
+  color: rgba(113, 72, 63, 0.78);
+}
+
+@keyframes cafe-scene-loading {
+  0%, 100% { opacity: 0.28; transform: scaleX(0.55); }
+  50% { opacity: 0.8; transform: scaleX(1); }
 }
 
 .paper-seal,

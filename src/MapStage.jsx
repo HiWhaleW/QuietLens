@@ -10,6 +10,7 @@ import {
   useMap,
   useMapEvents,
 } from "react-leaflet";
+import { getMapBoardMedia } from "./ai-native/media/mediaDelivery.js";
 import { projectCafeToHuangpu } from "./mapProjection.js";
 
 const MAP_BOUNDS = [
@@ -27,21 +28,21 @@ const MAP_BOARDS = [
     region: "shanghai",
     label: "上海全域",
     caption: "上海全域高清层",
-    image: "/assets/map/overview-watercolor-board.png",
+    image: getMapBoardMedia("overview")?.board.src,
   },
   {
     id: "central",
     region: "central",
     label: "中心城区",
     caption: "中心城区高清层",
-    image: "/assets/map/central-watercolor-board.png",
+    image: getMapBoardMedia("central")?.board.src,
   },
   {
     id: "huangpu",
     region: "huangpu",
     label: "黄浦区街区",
     caption: "黄浦区街区高清层",
-    image: "/assets/map/huangpu-watercolor-board.png",
+    image: getMapBoardMedia("huangpu")?.board.src,
   },
 ];
 
@@ -62,15 +63,30 @@ function markerIcon(cafe) {
   });
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 function sceneIcon(cafe, closing) {
   const arrow = renderToStaticMarkup(<ArrowDownLeft size={34} strokeWidth={1.6} aria-hidden="true" />);
-  const sceneMedia = cafe.scene
-    ? `<img class="cafe-scene-illustration" src="${cafe.scene}" alt="" />`
-    : `<div class="cafe-scene-placeholder"><span>门店水彩图</span><strong>待补充</strong></div>`;
+  const sceneStatus = cafe.sceneStatus ?? (cafe.scene ? "ready" : "failed");
+  const sceneMedia = sceneStatus === "ready" && cafe.scene
+    ? `<img class="cafe-scene-illustration cafe-scene-full" src="${escapeHtml(cafe.scene)}" alt="" aria-hidden="true" decoding="sync" />`
+    : sceneStatus === "failed"
+      ? `<div class="cafe-scene-placeholder is-failed"><span>门店水彩图</span><strong>图片暂不可用</strong></div>`
+      : `<div class="cafe-scene-placeholder is-loading" aria-label="门店图片加载中"><span>门店水彩图</span><strong>正在准备清晰图片</strong></div>`;
+  const notice = cafe.notice
+    ? `<div class="scene-conflict-note is-${escapeHtml(cafe.notice.kind)}"><strong>${escapeHtml(cafe.notice.label)}</strong><span>${escapeHtml(cafe.notice.text)}</span><i aria-hidden="true">${arrow}</i></div>`
+    : "";
 
   return L.divIcon({
     className: "cafe-scene-host",
-    html: `<div class="cafe-scene ${closing ? "is-closing" : "is-opening"}"><div class="paper-break" aria-hidden="true"><span class="paper-seal"></span><span class="torn-paper torn-paper-top"></span><span class="torn-paper torn-paper-right"></span><span class="torn-paper torn-paper-bottom"></span><span class="torn-paper torn-paper-left"></span>${sceneMedia}</div><div class="scene-conflict-note"><strong>可能冲突</strong><span>${cafe.conflict}</span><i aria-hidden="true">${arrow}</i></div></div>`,
+    html: `<div class="cafe-scene ${closing ? "is-closing" : "is-opening"}"><div class="paper-break" aria-hidden="true"><span class="paper-seal"></span><span class="torn-paper torn-paper-top"></span><span class="torn-paper torn-paper-right"></span><span class="torn-paper torn-paper-bottom"></span><span class="torn-paper torn-paper-left"></span>${sceneMedia}</div>${notice}</div>`,
     iconSize: [550, 340],
     iconAnchor: [310, 312],
   });
@@ -151,20 +167,21 @@ function FixedBoardViewport() {
 }
 
 function WatercolorBoards({ level }) {
-  return MAP_BOARDS.map((board, index) => (
+  const board = MAP_BOARDS[level];
+  return (
     <ImageOverlay
       key={board.id}
       url={board.image}
       bounds={MAP_BOUNDS}
-      className={`watercolor-board watercolor-board-${board.id} ${level === index ? "is-active" : ""}`}
-      opacity={level === index ? 1 : 0}
-      zIndex={100 + index}
+      className={`watercolor-board watercolor-board-${board.id} is-active`}
+      opacity={1}
+      zIndex={100 + level}
       interactive={false}
     />
-  ));
+  );
 }
 
-function CafeMarkers({ cafes, selectedCafe, boardLevel, onBoardLevel, onSelect }) {
+function CafeMarkers({ cafes, selectedCafe, boardLevel, onBoardLevel, onSelect, onPrefetch }) {
   const overview = useMemo(() => overviewIcon(cafes.length), [cafes.length]);
 
   if (selectedCafe) return null;
@@ -207,6 +224,9 @@ function CafeMarkers({ cafes, selectedCafe, boardLevel, onBoardLevel, onSelect }
       opacity={cafe.selectable === false ? 0.45 : 1}
       interactive={cafe.selectable !== false}
       eventHandlers={{
+        mouseover: () => onPrefetch?.(cafe.id, "marker_hover"),
+        focus: () => onPrefetch?.(cafe.id, "marker_focus"),
+        touchstart: () => onPrefetch?.(cafe.id, "marker_touch"),
         click: (event) => {
           L.DomEvent.stopPropagation(event.originalEvent);
           if (cafe.selectable !== false) onSelect(cafe.id);
@@ -252,7 +272,7 @@ function BoardControls({ level, onChange }) {
   );
 }
 
-export function MapStage({ cafes, region, drawerOpen, selectedCafe, onSelect, onClearSelection, onRegionChange }) {
+export function MapStage({ cafes, region, drawerOpen, selectedCafe, onSelect, onPrefetch, onClearSelection, onRegionChange }) {
   const [sceneCafe, setSceneCafe] = useState(null);
   const [sceneClosing, setSceneClosing] = useState(false);
   const boardLevel = REGION_LEVELS[region] ?? 0;
@@ -317,7 +337,7 @@ export function MapStage({ cafes, region, drawerOpen, selectedCafe, onSelect, on
         />
 
         <Pane name="quietlens-scenes" style={{ zIndex: 450, pointerEvents: "none" }}>
-          {sceneCafe?.conflict && (
+          {sceneCafe && (sceneCafe.scene || sceneCafe.notice) && (
             <SafeSceneMarker cafe={sceneCafe} closing={sceneClosing} drawerOpen={drawerOpen} />
           )}
         </Pane>
@@ -328,6 +348,7 @@ export function MapStage({ cafes, region, drawerOpen, selectedCafe, onSelect, on
           boardLevel={boardLevel}
           onBoardLevel={changeBoardLevel}
           onSelect={onSelect}
+          onPrefetch={onPrefetch}
         />
       </MapContainer>
       <div className={drawerOpen ? "board-controls-wrap with-drawer" : "board-controls-wrap"}>

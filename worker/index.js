@@ -1,4 +1,9 @@
 import { routeAnalyticsRequest } from "./routes/analytics.js";
+import {
+  authorizeBetaApiRequest,
+  isBetaAccessPath,
+  routeBetaAccessRequest,
+} from "./routes/betaAccess.js";
 import { routeDecisionRequest } from "./routes/decision.js";
 import { routeEvidenceReviewRequest } from "./routes/evidenceReview.js";
 import { routeHealthRequest } from "./routes/health.js";
@@ -24,9 +29,19 @@ export default {
       }
     }
 
-    const apiResponse = await routeEvidenceReviewRequest(request, env)
-      ?? await routeDecisionRequest(request, env)
-      ?? await routeAnalyticsRequest(request, env);
+    const betaResponse = await routeBetaAccessRequest(request, env);
+    if (betaResponse) return withSecurityHeaders(betaResponse);
+
+    let authorizedRequest = request;
+    if (pathname.startsWith("/api/") && !isBetaAccessPath(pathname)) {
+      const authorization = await authorizeBetaApiRequest(request, env);
+      if (!authorization.allowed) return withSecurityHeaders(authorization.response);
+      authorizedRequest = authorization.request;
+    }
+
+    const apiResponse = await routeEvidenceReviewRequest(authorizedRequest, env)
+      ?? await routeDecisionRequest(authorizedRequest, env)
+      ?? await routeAnalyticsRequest(authorizedRequest, env);
     if (apiResponse) return withSecurityHeaders(apiResponse);
     if (pathname.startsWith("/api/")) {
       return withSecurityHeaders(jsonResponse({ error: { code: "API_NOT_FOUND" } }, 404));
