@@ -1,4 +1,5 @@
 import { assertContract } from "../contracts/validator.js";
+import { validateModelUsageObservation } from "./decisionCost.js";
 
 export const EVENT_DEFINITIONS = Object.freeze({
   decision_request_submitted: ["input_length_bucket", "entry_context"],
@@ -38,6 +39,22 @@ export const EVENT_DEFINITIONS = Object.freeze({
   decision_reasoning_started: ["candidate_count"],
   decision_reasoning_succeeded: ["candidate_count", "duration_ms"],
   decision_reasoning_failed: ["duration_ms"],
+  model_usage_observed: [
+    "cost_schema_version",
+    "operation",
+    "model_version",
+    "prompt_version",
+    "model_call_count",
+    "reported_usage_call_count",
+    "invalid_usage_call_count",
+    "retry_count",
+    "input_tokens",
+    "cached_input_tokens",
+    "output_tokens",
+    "reasoning_output_tokens",
+    "total_tokens",
+    "usage_complete",
+  ],
   evidence_verification_succeeded: ["claim_count", "citation_count"],
   evidence_verification_blocked: ["claim_count", "citation_count", "blocking_error_code"],
   decision_published: ["candidate_count", "unknown_count", "total_duration_ms"],
@@ -50,11 +67,25 @@ export const EVENT_DEFINITIONS = Object.freeze({
   feedback_entry_opened: ["place_id"],
   feedback_cancelled: ["place_id"],
   feedback_candidate_submitted: ["place_id", "candidate_observation_count"],
+  account_preference_saved: ["profile_kind", "saved_preference_count", "resulting_account_version"],
+  account_decision_saved: ["outcome", "candidate_count", "resulting_account_version"],
+  anonymous_session_migration_confirmed: ["outcome", "candidate_count", "resulting_account_version", "request_preserved"],
+  account_continuation_created: ["saved_preference_count", "saved_decision_count", "account_version"],
+  account_continuation_restored: ["saved_preference_count", "saved_decision_count", "account_version"],
+  account_data_viewed: ["saved_preference_count", "saved_decision_count", "account_version"],
+  account_preference_edited: ["changed_field_count", "resulting_account_version"],
+  account_data_exported: ["saved_preference_count", "saved_decision_count", "account_version"],
+  account_data_record_deleted: ["record_type", "resulting_account_version"],
+  account_closure_requested: ["saved_preference_count", "saved_decision_count", "account_version"],
+  account_closed: ["deleted_preference_count", "deleted_decision_count"],
 });
+
+export const SERVER_ONLY_EVENT_NAMES = Object.freeze(["model_usage_observed"]);
 
 const FORBIDDEN_KEY_PARTS = [
   "raw_text",
   "raw_request",
+  "original_phrase",
   "content",
   "correction_text",
   "chain_of_thought",
@@ -67,6 +98,14 @@ const FORBIDDEN_KEY_PARTS = [
   "email",
   "api_key",
   "secret",
+  "invite",
+  "participant",
+  "contact",
+  "address",
+  "latitude",
+  "longitude",
+  "coordinate",
+  "location",
 ];
 
 const SENSITIVE_VALUE_PATTERNS = [
@@ -74,6 +113,9 @@ const SENSITIVE_VALUE_PATTERNS = [
   /[A-Z]:\\/i,
   /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
   /(?:api[_-]?key|bearer)\s*[:= ]\s*\S+/i,
+  /\b1[3-9]\d{9}\b/u,
+  /\bQUIETLENS-[A-Za-z0-9_-]{8,}\b/u,
+  /(?:^|\s)-?\d{1,3}\.\d{4,}\s*[,，]\s*-?\d{1,3}\.\d{4,}(?:\s|$)/u,
 ];
 
 export function findPrivacyViolations(value, path = "$") {
@@ -121,10 +163,21 @@ export function validateAnalyticsEvent(event) {
         issues.push({ code: "EVENT_PROPERTY_MISSING", detail: property });
       }
     }
+    for (const property of Object.keys(event.properties ?? {})) {
+      if (!requiredProperties.includes(property)) {
+        issues.push({ code: "EVENT_PROPERTY_UNDECLARED", detail: property });
+      }
+    }
   }
 
   for (const violation of findPrivacyViolations(event)) {
     issues.push({ code: "EVENT_PRIVACY_VIOLATION", detail: violation });
+  }
+  if (event.event_name === "model_usage_observed") {
+    const costValidation = validateModelUsageObservation(event.properties);
+    for (const issue of costValidation.issues) {
+      issues.push({ code: "EVENT_COST_OBSERVATION_INVALID", detail: issue });
+    }
   }
 
   return { valid: issues.length === 0, issues };

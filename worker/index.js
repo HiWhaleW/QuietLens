@@ -1,5 +1,11 @@
 import { routeAnalyticsRequest } from "./routes/analytics.js";
+import {
+  authorizeBetaApiRequest,
+  isBetaAccessPath,
+  routeBetaAccessRequest,
+} from "./routes/betaAccess.js";
 import { routeDecisionRequest } from "./routes/decision.js";
+import { routeEvidenceReviewRequest } from "./routes/evidenceReview.js";
 import { routeHealthRequest } from "./routes/health.js";
 import { jsonResponse, withSecurityHeaders } from "./routes/http.js";
 import { checkRateLimit } from "./security/rateLimit.js";
@@ -10,7 +16,9 @@ export default {
     const healthResponse = routeHealthRequest(request, env);
     if (healthResponse) return withSecurityHeaders(healthResponse);
 
-    if (request.method === "POST" && pathname.startsWith("/api/")) {
+    const isEvidenceReviewPath = pathname.startsWith("/api/evidence-review/");
+    if ((!isEvidenceReviewPath && request.method === "POST" && pathname.startsWith("/api/"))
+      || (isEvidenceReviewPath && env?.QL_EVIDENCE_REVIEW_API_ENABLED === "true")) {
       const rate = checkRateLimit(request, env);
       if (!rate.allowed) {
         const response = jsonResponse({ error: { code: "RATE_LIMITED" } }, 429);
@@ -21,8 +29,19 @@ export default {
       }
     }
 
-    const apiResponse = await routeDecisionRequest(request, env)
-      ?? await routeAnalyticsRequest(request, env);
+    const betaResponse = await routeBetaAccessRequest(request, env);
+    if (betaResponse) return withSecurityHeaders(betaResponse);
+
+    let authorizedRequest = request;
+    if (pathname.startsWith("/api/") && !isBetaAccessPath(pathname)) {
+      const authorization = await authorizeBetaApiRequest(request, env);
+      if (!authorization.allowed) return withSecurityHeaders(authorization.response);
+      authorizedRequest = authorization.request;
+    }
+
+    const apiResponse = await routeEvidenceReviewRequest(authorizedRequest, env)
+      ?? await routeDecisionRequest(authorizedRequest, env)
+      ?? await routeAnalyticsRequest(authorizedRequest, env);
     if (apiResponse) return withSecurityHeaders(apiResponse);
     if (pathname.startsWith("/api/")) {
       return withSecurityHeaders(jsonResponse({ error: { code: "API_NOT_FOUND" } }, 404));

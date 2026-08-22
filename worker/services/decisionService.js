@@ -15,6 +15,7 @@ import {
   verifyAndRenderDecisionDraft,
 } from "../../src/ai-native/decision/verifyAndRender.js";
 import { assertContract } from "../../src/ai-native/contracts/validator.js";
+import { createModelUsageObservation } from "../../src/ai-native/analytics/decisionCost.js";
 import { createDeepSeekResponsesClient, ModelCallError } from "../ai/deepseekResponsesClient.js";
 import { interpretIntent } from "../ai/intentInterpreter.js";
 import { reasonAboutCandidates } from "../ai/decisionReasoner.js";
@@ -66,6 +67,43 @@ async function record(env, input) {
   }
 }
 
+async function recordModelUsage(env, {
+  sessionId,
+  requestId,
+  stage,
+  operation,
+  modelVersion,
+  promptVersion,
+  modelCalls,
+  usage,
+}) {
+  try {
+    const properties = createModelUsageObservation({
+      operation,
+      modelVersion,
+      promptVersion,
+      modelCalls,
+      usage,
+    });
+    return record(env, {
+      eventName: "model_usage_observed",
+      sessionId,
+      requestId,
+      stage,
+      modelVersion,
+      promptVersion,
+      properties,
+    });
+  } catch {
+    await emitOperationalEvent(env, {
+      severity: "error",
+      code: "MODEL_USAGE_OBSERVATION_FAILED",
+      requestId,
+    });
+    return false;
+  }
+}
+
 function citationCount(brief) {
   return brief.candidates.reduce((count, candidate) => (
     count + candidate.fit_reasons.reduce((sum, reason) => sum + reason.evidence_ids.length, 0)
@@ -82,6 +120,16 @@ async function recordPublished(env, payload, result, workflowStartedAt) {
   const { brief } = result;
   const modelVersion = brief.versions.model;
   const promptVersion = brief.versions.prompt;
+  await recordModelUsage(env, {
+    sessionId: payload.session_id,
+    requestId: brief.request_id,
+    stage: "F4",
+    operation: "decision_reasoning",
+    modelVersion,
+    promptVersion,
+    modelCalls: result.metrics.model_calls,
+    usage: result.metrics.usage,
+  });
   await record(env, {
     eventName: "evidence_verification_succeeded",
     sessionId: payload.session_id,
@@ -108,6 +156,16 @@ async function recordPublished(env, payload, result, workflowStartedAt) {
 
 async function recordRefused(env, payload, result, workflowStartedAt) {
   const { brief } = result;
+  await recordModelUsage(env, {
+    sessionId: payload.session_id,
+    requestId: brief.request_id,
+    stage: "F7",
+    operation: "decision_reasoning",
+    modelVersion: brief.versions.model,
+    promptVersion: brief.versions.prompt,
+    modelCalls: result.metrics.model_calls,
+    usage: result.metrics.usage,
+  });
   await record(env, {
     eventName: "decision_refused",
     sessionId: payload.session_id,
@@ -172,6 +230,16 @@ export async function interpretDecisionRequest(env, payload) {
       promptVersion: interpreted.prompt_version,
       properties: { duration_ms: Date.now() - startedAt },
     });
+    await recordModelUsage(env, {
+      sessionId: payload.session_id,
+      requestId: current.request_id,
+      stage: "F1",
+      operation: mode === "correction" ? "intent_correction" : "intent_initial",
+      modelVersion: interpreted.model_version,
+      promptVersion: interpreted.prompt_version,
+      modelCalls: interpreted.model_calls,
+      usage: interpreted.usage,
+    });
     return {
       request: merged.request,
       patch: interpreted.patch,
@@ -191,6 +259,18 @@ export async function interpretDecisionRequest(env, payload) {
       },
     };
   } catch (error) {
+    const failedUsage = Array.isArray(error.model_usage) ? error.model_usage.filter(Boolean) : [];
+    if (error.details?.usage) failedUsage.push(error.details.usage);
+    await recordModelUsage(env, {
+      sessionId: payload.session_id,
+      requestId: current.request_id,
+      stage: "F1",
+      operation: mode === "correction" ? "intent_correction" : "intent_initial",
+      modelVersion: intentModel,
+      promptVersion: INTENT_PROMPT_VERSION,
+      modelCalls: Number.isSafeInteger(error.model_calls) ? error.model_calls : 0,
+      usage: failedUsage,
+    });
     await record(env, {
       eventName: "intent_parse_failed",
       sessionId: payload.session_id,
@@ -343,6 +423,18 @@ export async function recommendForDecisionRequest(env, payload, { workflowStarte
   } catch (error) {
     error.model_calls = (error.model_calls ?? 0) + reasoningModelCalls;
     error.verification_repair_codes = [...new Set(verificationRepairCodes)];
+    const failedUsage = [...modelUsages].filter(Boolean);
+    if (error.details?.usage) failedUsage.push(error.details.usage);
+    await recordModelUsage(env, {
+      sessionId: payload.session_id,
+      requestId: request.request_id,
+      stage: "F3",
+      operation: "decision_reasoning",
+      modelVersion: reasoningModel,
+      promptVersion: REASONER_PROMPT_VERSION,
+      modelCalls: reasoningModelCalls,
+      usage: failedUsage,
+    });
     await record(env, {
       eventName: "decision_reasoning_failed",
       sessionId: payload.session_id,
@@ -357,6 +449,16 @@ export async function recommendForDecisionRequest(env, payload, { workflowStarte
   }
 
   if (!verification.valid) {
+    await recordModelUsage(env, {
+      sessionId: payload.session_id,
+      requestId: request.request_id,
+      stage: "F3",
+      operation: "decision_reasoning",
+      modelVersion: reasoningModel,
+      promptVersion: REASONER_PROMPT_VERSION,
+      modelCalls: reasoningModelCalls,
+      usage: modelUsages.filter(Boolean),
+    });
     await record(env, {
       eventName: "evidence_verification_blocked",
       sessionId: payload.session_id,

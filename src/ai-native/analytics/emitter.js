@@ -1,4 +1,5 @@
 import { assertAnalyticsEvent } from "./eventContract.js";
+import { appendBrowserAnalyticsEvent } from "./browserAnalyticsStore.js";
 import {
   CONTRACT_SCHEMA_VERSION,
   EVIDENCE_STORE_VERSION,
@@ -41,6 +42,11 @@ export function createAnalyticsEmitter({ sessionId, getVersions }) {
       properties,
     });
     try {
+      appendBrowserAnalyticsEvent(event);
+    } catch {
+      // Local analytics must never block the decision workflow.
+    }
+    try {
       await fetch("/api/analytics", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -52,4 +58,3 @@ export function createAnalyticsEmitter({ sessionId, getVersions }) {
     }
   };
 }
-

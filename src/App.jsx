@@ -65,7 +65,7 @@ function Header({ region, onRegion, visitTime, onVisitTime, theme, onToggleTheme
   return (
     <header className="topbar">
       <a className="brand" href="#app" aria-label="QuietLens 首页">
-        <span className="brand-mark"><img src="/assets/brand/quietlens-mark.png" alt="" /></span>
+        <span className="brand-mark"><img src="/assets/brand/quietlens-mark-ui-v1.png" alt="" /></span>
         <span className="brand-wordmark">QuietLens</span>
       </a>
 
@@ -382,7 +382,7 @@ export function App() {
   return (
     <div className="theme-root" data-theme={theme}>
       <div className="mobile-notice">
-        <img src="/assets/brand/quietlens-mark.png" alt="" />
+        <img src="/assets/brand/quietlens-mark-ui-v1.png" alt="" />
         <h1>QuietLens</h1>
         <p>当前阶段专注桌面体验，请在 1180px 以上的视口中打开。</p>
       </div>

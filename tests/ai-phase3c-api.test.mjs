@@ -91,8 +91,20 @@ function environment() {
       QUIETLENS_NOW: () => "2026-08-16T10:00:00+08:00",
       QUIETLENS_MODEL_CLIENT: {
         async callStructured({ schemaName }) {
-          if (schemaName === "quietlens_decision_request_patch") return { value: modelPatch("req-api-flow"), usage: null, response_id: "mock-intent" };
-          if (schemaName === "quietlens_decision_draft") return { value: draft, usage: null, response_id: "mock-reasoner" };
+          if (schemaName === "quietlens_decision_request_patch") {
+            return {
+              value: modelPatch("req-api-flow"),
+              usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+              response_id: "mock-intent",
+            };
+          }
+          if (schemaName === "quietlens_decision_draft") {
+            return {
+              value: draft,
+              usage: { input_tokens: 20, output_tokens: 10, total_tokens: 30 },
+              response_id: "mock-reasoner",
+            };
+          }
           throw new Error(`Unexpected schema ${schemaName}`);
         },
       },
@@ -190,6 +202,10 @@ test("runs the bounded intent and decision API without exposing model text", asy
   assert.equal(recommended.context.places.length, 10);
   assert.ok(runtime.events.some((event) => event.event_name === "intent_parse_succeeded"));
   assert.ok(runtime.events.some((event) => event.event_name === "evidence_verification_succeeded"));
+  const usageEvents = runtime.events.filter((event) => event.event_name === "model_usage_observed");
+  assert.deepEqual(usageEvents.map((event) => event.properties.operation), ["intent_initial", "decision_reasoning"]);
+  assert.ok(usageEvents.every((event) => event.properties.usage_complete === true));
+  assert.deepEqual(usageEvents.map((event) => event.properties.total_tokens), [15, 30]);
   const published = runtime.events.find((event) => event.event_name === "decision_published");
   assert.equal(published.properties.candidate_count, 2);
   assert.equal(published.properties.unknown_count, 2);

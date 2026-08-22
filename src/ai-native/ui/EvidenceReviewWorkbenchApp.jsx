@@ -36,6 +36,7 @@ import {
 const SUBJECT_LABELS = {
   source: "来源时效",
   candidate: "Candidate",
+  feedback_candidate: "到店反馈候选",
   deduplication_cluster: "去重簇",
   conflict: "冲突",
 };
@@ -46,6 +47,7 @@ const REASON_LABELS = {
   candidate_pending: "Candidate 等待人工判断",
   candidate_ambiguous: "门店身份存在歧义",
   candidate_unmatched: "未匹配到登记门店",
+  feedback_candidate_pending: "用户已确认，等待独立人工核实",
   deduplication_pending: "重复观察等待合并判断",
   conflict_pending: "规范化结果存在冲突",
 };
@@ -104,6 +106,12 @@ function subjectSummary(subjectType, subject) {
     ["规范值（合成）", String(subject.normalized_value)],
     ["来源", subject.source_id],
   ];
+  if (subjectType === "feedback_candidate") return [
+    ["门店", subject.place_id],
+    ["候选观察", `${subject.observations.length} 条`],
+    ["用户确认", subject.user_confirmed ? "是" : "否"],
+    ["事实状态", "未经独立核实"],
+  ];
   return [
     ["门店", subject.place_id],
     ["属性", subject.attribute],
@@ -120,7 +128,7 @@ function Metrics({ metrics }) {
   const cards = [
     ["待处理", metrics.unresolved_work_item_count, FileClock],
     ["来源复核", metrics.source_review_due_count, Database],
-    ["Candidate", metrics.candidate_pending_count, Tags],
+    ["Candidate", metrics.candidate_pending_count + metrics.feedback_candidate_pending_count, Tags],
     ["冲突 / 去重", metrics.conflict_pending_count + metrics.deduplication_pending_count, ShieldAlert],
   ];
   return (
@@ -181,6 +189,16 @@ function ReviewForm({ item, subject, onSaved }) {
   );
 }
 
+function FeedbackReviewBoundary({ subject }) {
+  return (
+    <div className="review-decision-form">
+      <div className="review-form-heading"><ShieldAlert aria-hidden="true" /><div><strong>独立核实门禁</strong><span>本条仅为用户确认过的候选观察</span></div></div>
+      <p><LockKeyhole aria-hidden="true" />合成工作台不提供“批准为事实”按钮。正式环境必须先补充可追溯来源或独立人工核实，再转换为普通 Candidate。</p>
+      <p>当前观察数：{subject?.observations.length ?? 0}；原始自由文本未写入候选记录。</p>
+    </div>
+  );
+}
+
 export function EvidenceReviewWorkbenchApp() {
   const [theme, setTheme] = useState("light");
   const [workspace, setWorkspace] = useState(() => loadSyntheticReviewWorkspace(window.localStorage));
@@ -222,10 +240,10 @@ export function EvidenceReviewWorkbenchApp() {
 
   return (
     <div className="theme-root" data-theme={theme}>
-      <div className="mobile-notice"><img src="/assets/brand/quietlens-mark.png" alt="" /><h1>Evidence Review</h1><p>审核工作台当前仅支持桌面视口。</p></div>
+      <div className="mobile-notice"><img src="/assets/brand/quietlens-mark-ui-v1.png" alt="" /><h1>Evidence Review</h1><p>审核工作台当前仅支持桌面视口。</p></div>
       <main className="review-app-shell">
         <header className="review-topbar">
-          <a href="/" className="review-brand"><span className="brand-mark"><img src="/assets/brand/quietlens-mark.png" alt="" /></span><span><strong>QuietLens</strong><small>Evidence Review · local</small></span></a>
+          <a href="/" className="review-brand"><span className="brand-mark"><img src="/assets/brand/quietlens-mark-ui-v1.png" alt="" /></span><span><strong>QuietLens</strong><small>Evidence Review · local</small></span></a>
           <div className="review-environment"><FlaskConical aria-hidden="true" /><span><strong>synthetic_fixture</strong>仅用于本地工程演练</span></div>
           <nav><a href="/"><ArrowLeft aria-hidden="true" />返回决策界面</a><button type="button" onClick={() => setTheme((value) => value === "light" ? "dark" : "light")}>{theme === "light" ? <Moon aria-hidden="true" /> : <SunMedium aria-hidden="true" />}{theme === "light" ? "夜间" : "日间"}</button></nav>
         </header>
@@ -262,7 +280,9 @@ export function EvidenceReviewWorkbenchApp() {
                 <div className="review-subject-title"><span>{SUBJECT_LABELS[selectedItem.subject_type]}</span><h3>{selectedItem.subject_id}</h3><p>{REASON_LABELS[selectedItem.reason]}</p></div>
                 <dl>{subjectSummary(selectedItem.subject_type, selectedSubject).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
                 <div className="review-untrusted-note"><ShieldAlert aria-hidden="true" /><span><strong>不执行来源内容</strong>工作台只展示受控字段；原文、指令和 URL 不会在这里执行。</span></div>
-                <ReviewForm key={selectedItem.work_item_id} item={selectedItem} subject={selectedSubject} onSaved={saveDecision} />
+                {selectedItem.subject_type === "feedback_candidate"
+                  ? <FeedbackReviewBoundary subject={selectedSubject} />
+                  : <ReviewForm key={selectedItem.work_item_id} item={selectedItem} subject={selectedSubject} onSaved={saveDecision} />}
               </> : <div className="review-empty review-empty-large"><CheckCircle2 aria-hidden="true" /><strong>没有待处理工作项</strong><span>你可以查看右侧发布门禁，或重置 synthetic 演练。</span></div>}
             </div>
 

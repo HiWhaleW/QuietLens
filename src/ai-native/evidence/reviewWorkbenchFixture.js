@@ -1,3 +1,8 @@
+import {
+  confirmFeedbackPreview,
+  createFeedbackConfirmationPreview,
+} from "./feedbackCandidate.js";
+
 export const SYNTHETIC_REVIEWER_ID = "reviewer-local-fixture";
 
 export const SYNTHETIC_PIPELINE_STATE = Object.freeze({
@@ -77,6 +82,38 @@ export const SYNTHETIC_CANDIDATE_STATE = Object.freeze({
       requires_human_review: true,
     }),
   ]),
+  feedback_candidates: Object.freeze([
+    Object.freeze(confirmFeedbackPreview(createFeedbackConfirmationPreview({
+      requestId: "req-synthetic-feedback-fixture",
+      placeId: "hp-fixture-cafe",
+      destination: "evidence_candidate",
+      feedbackText: "本地合成演练：两点靠窗明亮，三点后交谈声增加。",
+      visitWindow: "合成时段 14:00–16:00",
+      suggestedObservations: [
+        {
+          attribute: "daylight",
+          summary_untrusted: "合成观察：14:00 靠窗区域明亮。",
+          normalized_value: "bright_near_window",
+          observed_at: "2026-08-19T14:00:00+08:00",
+          applicable_time: "14:00 左右",
+        },
+        {
+          attribute: "noise",
+          summary_untrusted: "合成观察：15:00 后交谈声增加。",
+          normalized_value: "conversation_increased",
+          observed_at: "2026-08-19T15:00:00+08:00",
+          applicable_time: "15:00 后",
+        },
+      ],
+      extractionMethod: "ai_assisted",
+      extractionModel: "synthetic-feedback-extractor-v1",
+      createdAt: "2026-08-19T16:00:00+08:00",
+      containsPersonalIdentifiers: false,
+    }), {
+      confirmed: true,
+      confirmedAt: "2026-08-19T16:01:00+08:00",
+    })),
+  ]),
 });
 
 export function syntheticSubject(subjectType, subjectId) {
@@ -84,5 +121,8 @@ export function syntheticSubject(subjectType, subjectId) {
   if (subjectType === "candidate") return SYNTHETIC_CANDIDATE_STATE.candidates.find((item) => item.candidate_id === subjectId) ?? null;
   if (subjectType === "deduplication_cluster") return SYNTHETIC_CANDIDATE_STATE.deduplication_clusters.find((item) => item.cluster_id === subjectId) ?? null;
   if (subjectType === "conflict") return SYNTHETIC_CANDIDATE_STATE.conflict_queue.find((item) => item.conflict_id === subjectId) ?? null;
+  if (subjectType === "feedback_candidate") {
+    return SYNTHETIC_CANDIDATE_STATE.feedback_candidates.find((item) => item.feedback_candidate_id === subjectId) ?? null;
+  }
   return null;
 }

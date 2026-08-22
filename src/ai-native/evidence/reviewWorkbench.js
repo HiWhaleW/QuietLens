@@ -173,6 +173,16 @@ export function buildEvidenceReviewWorkbench({
       }));
     }
   }
+  for (const candidate of candidateState?.feedback_candidates ?? []) {
+    if (candidate.status !== "pending_review" || candidate.review_status !== "pending") continue;
+    queue.push(queueItem({
+      subjectType: "feedback_candidate",
+      subjectId: candidate.feedback_candidate_id,
+      reason: "feedback_candidate_pending",
+      priority: "medium",
+      contentTrust: "untrusted",
+    }));
+  }
   for (const cluster of candidateState?.deduplication_clusters ?? []) {
     if (!decisions.has(cluster.cluster_id)) {
       queue.push(queueItem({
@@ -206,6 +216,7 @@ export function buildEvidenceReviewWorkbench({
       source_count: sources.length,
       source_review_due_count: sources.filter((source) => ["unassessed", "due", "overdue"].includes(source.freshness)).length,
       candidate_pending_count: queue.filter((item) => item.subject_type === "candidate").length,
+      feedback_candidate_pending_count: queue.filter((item) => item.subject_type === "feedback_candidate").length,
       deduplication_pending_count: queue.filter((item) => item.subject_type === "deduplication_cluster").length,
       conflict_pending_count: queue.filter((item) => item.subject_type === "conflict").length,
       unresolved_work_item_count: queue.length,

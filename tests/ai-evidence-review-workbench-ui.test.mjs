@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isLocalEvidenceReviewWorkbenchLocation } from "../src/ai-native/evidence/reviewWorkbenchEntry.js";
+import {
+  isLocalBetaAnalyticsDashboardLocation,
+  isLocalEvidenceReviewerAuthLocation,
+  isLocalEvidenceReviewWorkbenchLocation,
+} from "../src/ai-native/evidence/reviewWorkbenchEntry.js";
+import {
+  enrollReviewerTotp,
+  normalizeReviewerSupabaseConfig,
+  readReviewerAuthState,
+  signInReviewer,
+  verifyReviewerTotp,
+} from "../src/ai-native/evidence/reviewerAuthClient.js";
 import {
   SYNTHETIC_CANDIDATE_STATE,
   SYNTHETIC_PIPELINE_STATE,
@@ -55,6 +66,65 @@ test("opens the operator workbench only on an explicit localhost URL", () => {
   assert.equal(isLocalEvidenceReviewWorkbenchLocation({ hostname: "127.0.0.1", search: "" }), false);
 });
 
+test("opens the Beta analytics dashboard only on an explicit localhost URL", () => {
+  assert.equal(isLocalBetaAnalyticsDashboardLocation({ hostname: "127.0.0.1", search: "?workbench=beta-analytics" }), true);
+  assert.equal(isLocalBetaAnalyticsDashboardLocation({ hostname: "localhost", search: "?workbench=beta-analytics" }), true);
+  assert.equal(isLocalBetaAnalyticsDashboardLocation({ hostname: "quietlens.example", search: "?workbench=beta-analytics" }), false);
+});
+
+test("opens reviewer Auth bootstrap only on its explicit localhost URL", () => {
+  assert.equal(isLocalEvidenceReviewerAuthLocation({ hostname: "127.0.0.1", search: "?workbench=evidence-review-auth" }), true);
+  assert.equal(isLocalEvidenceReviewerAuthLocation({ hostname: "quietlens.example", search: "?workbench=evidence-review-auth" }), false);
+  assert.equal(isLocalEvidenceReviewerAuthLocation({ hostname: "localhost", search: "?workbench=evidence-review" }), false);
+});
+
+test("accepts only an official project URL and a browser publishable key", () => {
+  const normalized = normalizeReviewerSupabaseConfig({
+    projectUrl: "https://quietlensfixture.supabase.co/",
+    publishableKey: `sb_publishable_${"p".repeat(40)}`,
+  });
+  assert.equal(normalized.project_url, "https://quietlensfixture.supabase.co");
+  assert.throws(() => normalizeReviewerSupabaseConfig({
+    projectUrl: "https://quietlens.example.com",
+    publishableKey: `sb_publishable_${"p".repeat(40)}`,
+  }), /REVIEWER_AUTH_CONFIG_INVALID/);
+  assert.throws(() => normalizeReviewerSupabaseConfig({
+    projectUrl: "https://quietlensfixture.supabase.co",
+    publishableKey: `sb_secret_${"s".repeat(40)}`,
+  }), /REVIEWER_AUTH_CONFIG_INVALID/);
+});
+
+test("requires TOTP AAL2 without retaining credentials or exposing the enrollment secret", async () => {
+  let signedIn = false;
+  let verified = false;
+  const calls = [];
+  const client = {
+    auth: {
+      async getSession() { return { data: { session: signedIn ? { user: { id: "fixture" } } : null }, error: null }; },
+      async signInWithPassword(value) { calls.push({ operation: "sign_in", email: value.email }); signedIn = true; return { error: null }; },
+      mfa: {
+        async getAuthenticatorAssuranceLevel() { return { data: { currentLevel: verified ? "aal2" : "aal1", nextLevel: "aal2" }, error: null }; },
+        async listFactors() { return { data: { totp: [] }, error: null }; },
+        async enroll() { return { data: { id: "factor-fixture", type: "totp", totp: { qr_code: "data:image/svg+xml;base64,fixture", secret: "must-not-return" } }, error: null }; },
+        async challenge({ factorId }) { calls.push({ operation: "challenge", factorId }); return { data: { id: "challenge-fixture" }, error: null }; },
+        async verify({ code }) { calls.push({ operation: "verify", code_length: code.length }); verified = true; return { error: null }; },
+      },
+    },
+  };
+
+  assert.equal((await readReviewerAuthState(client)).status, "signed_out");
+  assert.equal((await signInReviewer(client, { email: "owner@example.com", password: "not-retained" })).status, "enrollment_required");
+  const enrollment = await enrollReviewerTotp(client);
+  assert.deepEqual(Object.keys(enrollment).sort(), ["factor_id", "qr_code"]);
+  assert.doesNotMatch(JSON.stringify(enrollment), /must-not-return/);
+  assert.equal((await verifyReviewerTotp(client, { factorId: enrollment.factor_id, code: "123456" })).status, "ready_aal2");
+  assert.deepEqual(calls, [
+    { operation: "sign_in", email: "owner@example.com" },
+    { operation: "challenge", factorId: "factor-fixture" },
+    { operation: "verify", code_length: 6 },
+  ]);
+});
+
 test("persists only append-only synthetic review decisions", () => {
   const storage = memoryStorage();
   const decision = sourceDecision();
@@ -88,9 +158,10 @@ test("drives the synthetic queue while keeping publication permanently blocked",
     source_count: 3,
     source_review_due_count: 3,
     candidate_pending_count: 3,
+    feedback_candidate_pending_count: 1,
     deduplication_pending_count: 1,
     conflict_pending_count: 1,
-    unresolved_work_item_count: 8,
+    unresolved_work_item_count: 9,
   });
   const release = createEvidenceReleaseDraft({
     evidenceVersion: "v1.0.0-fixture.local",

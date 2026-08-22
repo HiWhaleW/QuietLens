@@ -1,4 +1,5 @@
 import { validateEvidenceStore } from "../../src/ai-native/evidence/validateStore.js";
+import { betaAccessHealth } from "../beta/inviteAccess.js";
 import { isHeaderSafeApiKey } from "../ai/deepseekResponsesClient.js";
 import { jsonResponse } from "./http.js";
 
@@ -10,12 +11,14 @@ export function routeHealthRequest(request, env) {
   const evidenceReady = validateEvidenceStore(env.QUIETLENS_EVIDENCE_STORE).valid;
   const modelReady = typeof env.QUIETLENS_MODEL_CLIENT?.callStructured === "function"
     || isHeaderSafeApiKey(env.DEEPSEEK_API_KEY);
-  const ready = evidenceReady && modelReady;
+  const betaAccess = betaAccessHealth(env);
+  const ready = evidenceReady && modelReady && betaAccess.ready;
   return jsonResponse({
     status: ready ? "ready" : "degraded",
     checks: {
       evidence_store: evidenceReady ? "ready" : "unavailable",
       model: modelReady ? "ready" : "unavailable",
+      beta_access: betaAccess.status,
     },
   }, ready ? 200 : 503);
 }

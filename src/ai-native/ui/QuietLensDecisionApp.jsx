@@ -1,18 +1,20 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   Armchair,
   ArrowLeft,
+  ArrowRight,
   AudioLines,
   Calculator,
   Check,
   ChevronDown,
+  Circle,
   CircleHelp,
   Clock3,
   Database,
   ExternalLink,
+  Footprints,
   LoaderCircle,
   MapPin,
-  MessageCircleMore,
   MessageSquareText,
   Moon,
   Pencil,
@@ -29,17 +31,18 @@ import {
 import { MapStage } from "../../MapStage.jsx";
 import { createAnalyticsEmitter, createRequestId, getSessionId } from "../analytics/emitter.js";
 import { correctDecision, interpretDecision, recommendDecision } from "../client/decisionApi.js";
+import { getCafeSceneMedia, selectScenePrefetchUrls } from "../media/mediaDelivery.js";
+import { getDecodedImageStatus, preloadDecodedImage } from "../media/mediaPrefetch.js";
 import {
   explorationScoreBucket,
   getSensoryReferenceProfile,
-  SENSORY_DIMENSION_LABELS,
-  SENSORY_DIMENSIONS,
   SENSORY_REFERENCE_PROFILE_VERSION,
 } from "../evidence/explorationScore.js";
 import { buildCandidateCitationView } from "../evidence/citationView.js";
 import { applyClarificationAnswer } from "../intent/clarification.js";
 import { applyManualFieldEdit } from "../intent/manualFieldEdit.js";
 import { decisionReducer, initialDecisionState } from "../state/decisionReducer.js";
+import { sceneNoticeForPlace } from "./scenePresentation.js";
 
 const ROLE_LABELS = { primary: "首选", conditional: "条件首选", alternative: "备选" };
 const CONFIDENCE_LABELS = { high: "高置信", medium: "中置信", low: "低置信" };
@@ -59,12 +62,43 @@ const ATTRIBUTE_LABELS = {
   workspace: "工作空间",
   operating_status: "营业状态",
 };
-const SENSORY_ICONS = {
+const EDITORIAL_SENSORY_DIMENSIONS = ["quiet", "uncrowded", "daylight", "seating"];
+const EDITORIAL_SENSORY_LABELS = {
+  quiet: "安静度",
+  uncrowded: "低拥挤",
+  daylight: "自然光",
+  seating: "座位友好",
+};
+const EDITORIAL_SENSORY_ICONS = {
   quiet: AudioLines,
   uncrowded: Users,
   daylight: SunMedium,
   seating: Armchair,
 };
+const EDITORIAL_PLACE_PRESENTATIONS = {
+  "hp-antique": {
+    roleLabel: "本轮推荐",
+    reasons: [
+      "自然光记录充足",
+      "两层空间与庭院，适合停留 90 分钟",
+      "靠窗与户外座位已有实访记录",
+    ],
+    tradeoff: "下午茶时段座位紧张",
+    bubbleEvidence: "户外座位：已有可用证据；座位：有临窗或花园座位观察",
+    bubbleTradeoff: "拥挤程度需权衡：下午可能较拥挤",
+    compositeScore: 70,
+    displayScores: { quiet: 67, uncrowded: 51, daylight: 86, seating: 79 },
+    evidenceLabel: "2024 实访 · 可靠度 78%",
+    sourceCount: 3,
+  },
+};
+const RELIABILITY_LABELS = { high: "高可靠度", medium: "中可靠度", low: "低可靠度" };
+const PRIORITY_OPTIONS = [
+  { value: "high", label: "高优先级" },
+  { value: "medium", label: "中优先级" },
+  { value: "low", label: "低优先级" },
+  { value: "remove", label: "删除这项偏好", destructive: true },
+];
 const UNKNOWN_LABELS = {
   task: "任务类型",
   duration: "停留时长",
@@ -167,26 +201,87 @@ function Header({
   hasDecision,
   area,
   arrivalAt,
+  variant = "default",
+  actionsCovered = false,
 }) {
   const ThemeIcon = theme === "light" ? SunMedium : Moon;
 
   return (
-    <header className="ai-topbar">
+    <header className={`ai-topbar ${variant === "home" ? "is-home" : ""} ${actionsCovered ? "has-paper-covered-actions" : ""}`}>
       <a className="brand" href="#app" aria-label="QuietLens 首页">
-        <span className="brand-mark"><img src="/assets/brand/quietlens-mark.png" alt="" /></span>
-        <span className="brand-wordmark">QuietLens</span>
+        <span className="brand-mark"><img src="/assets/brand/quietlens-mark-ui-v1.png" alt="" /></span>
+        {variant === "home" && <span className="brand-wordmark">QuietLens</span>}
       </a>
       <div className="ai-context" aria-label="当前覆盖范围">
         <span><MapPin aria-hidden="true" />{area}</span>
-        <i aria-hidden="true" />
+        <Circle className="ai-context-separator" aria-hidden="true" />
         <span><Clock3 aria-hidden="true" />{arrivalContextLabel(arrivalAt)}</span>
       </div>
-      <nav className="ai-header-actions" aria-label="全局工具">
+      <nav
+        className="ai-header-actions"
+        aria-label="全局工具"
+        aria-hidden={actionsCovered ? "true" : undefined}
+        inert={actionsCovered ? "true" : undefined}
+      >
         {hasDecision && <button type="button" onClick={onReset}><RotateCcw aria-hidden="true" />新决定</button>}
         <button type="button" onClick={onTheme} title="切换显示模式"><ThemeIcon aria-hidden="true" />{theme === "light" ? "日间模式" : "夜间模式"}</button>
         <button type="button" onClick={() => onMethod("header")}><Database aria-hidden="true" />数据与方法</button>
       </nav>
     </header>
+  );
+}
+
+function VisualHomepage({ theme, value, onChange, onSubmit, disabled, onTheme, onMethod }) {
+  const hasValue = Boolean(value.trim());
+
+  return (
+    <section className="ai-visual-home" aria-labelledby="ai-visual-home-title">
+      <img
+        className="ai-visual-home-art"
+        src="/assets/homepage/quietlens-homepage-watercolor-background-v2.png"
+        alt=""
+        aria-hidden="true"
+      />
+      <div className="ai-visual-home-night-wash" aria-hidden="true" />
+
+      <Header
+        theme={theme}
+        onTheme={onTheme}
+        onMethod={onMethod}
+        hasDecision={false}
+        area="上海"
+        arrivalAt={null}
+        variant="home"
+      />
+
+      <div className="ai-home-content">
+        <h1 id="ai-visual-home-title">此刻，你想在城市里<br />找一处怎样的地方？</h1>
+        <p>说说时间、区域，以及你想保留的感受</p>
+
+        <form className={`ai-home-line-composer ${hasValue ? "has-value" : ""}`} onSubmit={onSubmit}>
+          <label className="ai-visually-hidden" htmlFor="quietlens-home-request">描述这次地点需求</label>
+          <input
+            id="quietlens-home-request"
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            disabled={disabled}
+            maxLength={1200}
+            autoComplete="off"
+            placeholder="例如：明天下午两点，外滩附近，想安静工作 90 分钟，自然光很重要"
+          />
+          <button type="submit" disabled={disabled || !hasValue} aria-label="提交需求" title="提交需求">
+            {disabled ? <LoaderCircle className="is-spinning" aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}
+          </button>
+        </form>
+
+        <div className="ai-home-shortcuts" aria-label="快捷需求">
+          <button type="button" onClick={() => onChange("明天下午两点，外滩附近，想安静工作 90 分钟，自然光很重要")}>限时专注</button>
+          <button type="button" onClick={() => onChange("我现在很累，想在黄浦找个低刺激、不要太吵的地方休息。")}>低刺激恢复</button>
+        </div>
+      </div>
+
+      <div className="ai-home-scope"><span>黄浦区 · 10 家受控门店</span><MapPin aria-hidden="true" /></div>
+    </section>
   );
 }
 
@@ -204,9 +299,136 @@ function Composer({ value, onChange, onSubmit, disabled, compact = false, onFocu
         aria-label={compact ? "补充或纠正本次需求" : "描述这次地点需求"}
       />
       <button type="submit" disabled={disabled || !value.trim()} aria-label="提交需求" title="提交需求">
-        {disabled ? <LoaderCircle className="is-spinning" aria-hidden="true" /> : <Send aria-hidden="true" />}
+        {disabled ? <LoaderCircle className="is-spinning" aria-hidden="true" /> : compact ? <Send aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}
       </button>
     </form>
+  );
+}
+
+function IntentPriorityMenu({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [activeValue, setActiveValue] = useState(value);
+  const [opensUpward, setOpensUpward] = useState(false);
+  const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+  const selectedOption = PRIORITY_OPTIONS.find((option) => option.value === value) ?? PRIORITY_OPTIONS[0];
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    function closeOnOutsidePress(event) {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsidePress);
+    document.addEventListener("click", closeOnOutsidePress);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePress);
+      document.removeEventListener("click", closeOnOutsidePress);
+    };
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+
+    let frame = 0;
+    function measureDirection() {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const triggerRect = triggerRef.current?.getBoundingClientRect();
+        const menuRect = menuRef.current?.getBoundingClientRect();
+        if (!triggerRect || !menuRect) return;
+        const requiredSpace = menuRect.height + 8;
+        const roomBelow = window.innerHeight - triggerRect.bottom;
+        const roomAbove = triggerRect.top;
+        setOpensUpward(roomBelow < requiredSpace && roomAbove >= requiredSpace);
+      });
+    }
+
+    measureDirection();
+    window.addEventListener("resize", measureDirection);
+    document.addEventListener("scroll", measureDirection, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", measureDirection);
+      document.removeEventListener("scroll", measureDirection, true);
+    };
+  }, [open]);
+
+  function select(nextValue) {
+    onChange(nextValue);
+    setActiveValue(nextValue);
+    setOpen(false);
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  }
+
+  function handleKeyDown(event) {
+    const currentIndex = Math.max(0, PRIORITY_OPTIONS.findIndex((option) => option.value === activeValue));
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      const nextIndex = (currentIndex + direction + PRIORITY_OPTIONS.length) % PRIORITY_OPTIONS.length;
+      setOpen(true);
+      setActiveValue(PRIORITY_OPTIONS[nextIndex].value);
+      return;
+    }
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      setOpen(true);
+      setActiveValue(PRIORITY_OPTIONS[event.key === "Home" ? 0 : PRIORITY_OPTIONS.length - 1].value);
+      return;
+    }
+    if ((event.key === "Enter" || event.key === " ") && open) {
+      event.preventDefault();
+      select(activeValue);
+      return;
+    }
+    if (event.key === "Escape" && open) {
+      event.preventDefault();
+      setOpen(false);
+      setActiveValue(value);
+      triggerRef.current?.focus();
+    }
+  }
+
+  return (
+    <div className={`ai-intent-priority-select ${open ? "is-open" : ""} ${opensUpward ? "opens-upward" : ""}`} ref={rootRef} onKeyDown={handleKeyDown}>
+      <button
+        ref={triggerRef}
+        className="ai-intent-priority-trigger"
+        type="button"
+        aria-label="偏好优先级"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls="intent-priority-options"
+        onClick={() => {
+          setActiveValue(value);
+          setOpen((current) => !current);
+        }}
+      >
+        <span>{selectedOption.label}</span>
+        <ChevronDown aria-hidden="true" />
+      </button>
+      {open && (
+        <div ref={menuRef} className="ai-intent-priority-options" id="intent-priority-options" role="listbox" aria-label="选择偏好优先级">
+          {PRIORITY_OPTIONS.map((option) => (
+            <button
+              className={`${activeValue === option.value ? "is-active" : ""} ${option.destructive ? "is-destructive" : ""}`}
+              type="button"
+              role="option"
+              aria-selected={value === option.value}
+              key={option.value}
+              onMouseEnter={() => setActiveValue(option.value)}
+              onClick={() => select(option.value)}
+            >
+              <Check aria-hidden="true" />
+              <span>{option.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -236,7 +458,7 @@ function IntentEditor({ row, request, onSave, onCancel }) {
       {row.kind === "time" && <input type="datetime-local" value={arrival} onChange={(event) => setArrival(event.target.value)} aria-label="到达时间" />}
       {row.kind === "location" && <input value={area} onChange={(event) => setArea(event.target.value)} maxLength="40" aria-label="地点" />}
       {row.kind === "walk" && <input type="number" min="1" max="90" value={walk} onChange={(event) => setWalk(event.target.value)} placeholder="不限制" aria-label="最多步行分钟数" />}
-      {row.kind === "preference" && <select value={priority} onChange={(event) => setPriority(event.target.value)} aria-label="偏好优先级"><option value="high">高优先级</option><option value="medium">中优先级</option><option value="low">低优先级</option><option value="remove">删除这项偏好</option></select>}
+      {row.kind === "preference" && <IntentPriorityMenu value={priority} onChange={setPriority} />}
       {row.kind === "constraint" && <select value={constraintAction} onChange={(event) => setConstraintAction(event.target.value)} aria-label="硬条件处理方式"><option value="preference">改为高优先级偏好</option><option value="remove">删除硬条件</option></select>}
       {row.kind === "unknown" && <p>确认这次不再考虑“{row.value}”</p>}
       <div><button type="submit">保存</button><button type="button" onClick={onCancel}>取消</button></div>
@@ -244,18 +466,45 @@ function IntentEditor({ row, request, onSave, onCancel }) {
   );
 }
 
-function IntentSummary({ request, changes, onEdit, disabled, onEditStarted }) {
+function requestRowIcon(row) {
+  if (row.kind === "time") return Clock3;
+  if (row.kind === "location") return MapPin;
+  if (row.kind === "walk") return Footprints;
+  if (row.kind === "constraint") return ShieldCheck;
+  if (row.kind === "unknown") return CircleHelp;
+  if (row.preference?.field === "noise") return AudioLines;
+  if (row.preference?.field === "crowding") return Users;
+  if (row.preference?.field === "daylight") return SunMedium;
+  return Armchair;
+}
+
+function IntentSummary({ request, originalText, changes, onEdit, disabled, onEditStarted }) {
   const [editingKey, setEditingKey] = useState(null);
   const rows = requestRows(request);
   return (
     <section className="ai-intent" aria-labelledby="intent-title">
-      <div className="ai-section-title"><h2 id="intent-title">AI 理解的本次需求</h2><span>可直接修改</span></div>
+      <div className="ai-section-title">
+        <h2 id="intent-title"><Sparkles aria-hidden="true" />AI 理解的本次需求</h2>
+      </div>
+      <section className="ai-original-request is-indexed">
+        <span>你说的是</span>
+        <p>“{originalText || "已保留本次需求"}”</p>
+      </section>
       <div className="ai-intent-rows">
-        {rows.map((row) => editingKey === row.key ? (
-          <IntentEditor key={row.key} row={row} request={request} onSave={(edit) => { onEdit(row, edit); setEditingKey(null); }} onCancel={() => setEditingKey(null)} />
-        ) : (
-          <div key={row.key}><span>{row.label}</span><strong>{row.value}</strong><button type="button" disabled={disabled} onClick={() => { setEditingKey(row.key); onEditStarted(row); }} aria-label={`编辑${row.label}`} title={`编辑${row.label}`}><Pencil aria-hidden="true" /></button></div>
-        ))}
+        {rows.map((row) => {
+          if (editingKey === row.key) {
+            return <IntentEditor key={row.key} row={row} request={request} onSave={(edit) => { onEdit(row, edit); setEditingKey(null); }} onCancel={() => setEditingKey(null)} />;
+          }
+          const RowIcon = requestRowIcon(row);
+          return (
+            <div className={`ai-intent-row is-${row.kind}`} key={row.key}>
+              <RowIcon className="ai-intent-row-icon" aria-hidden="true" />
+              <span>{row.label}</span>
+              <strong>{row.value}</strong>
+              <button type="button" disabled={disabled} onClick={() => { setEditingKey(row.key); onEditStarted(row); }} aria-label={`编辑${row.label}`} title={`编辑${row.label}`}><Pencil aria-hidden="true" /></button>
+            </div>
+          );
+        })}
       </div>
       {changes?.length > 0 && (
         <p className="ai-change-note"><Check aria-hidden="true" />本轮更新了 {changes.length} 项条件</p>
@@ -279,10 +528,25 @@ function ProcessStatus({ stage }) {
 
 function Clarification({ clarification, onAnswer, onTextAnswer, disabled }) {
   const [answer, setAnswer] = useState("");
+  const sectionRef = useRef(null);
   const acceptsText = clarification.option_codes.includes("answer_in_own_words");
+
+  useEffect(() => {
+    const section = sectionRef.current;
+    if (!section) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      section.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "center",
+        inline: "nearest",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [clarification.question_code, clarification.target_field]);
+
   return (
-    <section className="ai-clarification" aria-labelledby="clarification-title">
-      <span className="ai-stage-label"><Sparkles aria-hidden="true" />需要确认一项</span>
+    <section ref={sectionRef} className="ai-clarification" aria-labelledby="clarification-title">
+      <div className="ai-clarification-heading"><span className="ai-stage-label"><Sparkles aria-hidden="true" />需要确认一项</span></div>
       <h2 id="clarification-title">{CLARIFICATION_COPY[clarification.question_code] ?? "这项条件会改变候选结果"}</h2>
       {acceptsText ? (
         <form onSubmit={(event) => { event.preventDefault(); if (answer.trim()) onTextAnswer(answer.trim()); }}>
@@ -298,7 +562,7 @@ function Clarification({ clarification, onAnswer, onTextAnswer, disabled }) {
   );
 }
 
-function CandidateList({ brief, context, selectedId, onSelect }) {
+function CandidateList({ brief, context, selectedId, onSelect, onPrefetch }) {
   const placeById = new Map(context.places.map((place) => [place.place_id, place]));
   const constraintById = new Map(brief.request.hard_constraints.map((constraint) => [constraint.constraint_id, constraint]));
   return (
@@ -320,6 +584,9 @@ function CandidateList({ brief, context, selectedId, onSelect }) {
               key={candidate.place_id}
               type="button"
               className={selectedId === candidate.place_id ? "is-selected" : ""}
+              onMouseEnter={() => onPrefetch(candidate.place_id, "candidate_hover")}
+              onFocus={() => onPrefetch(candidate.place_id, "candidate_focus")}
+              onTouchStart={() => onPrefetch(candidate.place_id, "candidate_touch")}
               onClick={() => onSelect(candidate.place_id, "list")}
             >
               <span className="ai-candidate-rank">{index + 1}</span>
@@ -385,48 +652,87 @@ function nonRecommendationReason(exploration, request, candidateCount) {
   return `本店已进入比较范围，但相较本轮 ${candidateCount} 家候选，没有形成更强的本次需求证据组合。`;
 }
 
-function StoreProfile({ placeId, score, arrivalAt }) {
+function recommendationRoleLabel(role) {
+  if (role === "primary" || role === "conditional") return "本轮推荐";
+  return "本轮备选";
+}
+
+function editorialStoreName(name) {
+  return name.replace(/（[^）]+店）$/u, "").trim();
+}
+
+function editorialDisplayText(value) {
+  return String(value ?? "")
+    .replaceAll("（待现场采样）", "")
+    .replaceAll("；座位、声量与客流仍待现场核实", "")
+    .replaceAll("；安静度与工作适配仍待现场采样", "")
+    .trim();
+}
+
+function StoreProfile({ placeId, arrivalAt, score }) {
   const profile = getSensoryReferenceProfile(placeId, arrivalAt);
   if (!profile) return null;
+  const presentation = EDITORIAL_PLACE_PRESENTATIONS[placeId] ?? null;
+  const displayScores = presentation?.displayScores ?? profile.display_scores;
+  const compositeScore = presentation?.compositeScore ?? score ?? "待补充";
   return (
-    <div className="ai-store-profile">
-      <div className="ai-store-match-summary">
-        <div><strong>{score ?? "待补充"}</strong><span>综合参考</span></div>
-        <div className="ai-store-confidence"><span>置信度 {profile.confidence}%</span><i><b style={{ width: `${profile.confidence}%` }} /></i></div>
-      </div>
-      <section className="ai-store-time"><Clock3 aria-hidden="true" /><div><span>适合时段</span><strong>{profile.best_time}</strong></div></section>
-      <section className="ai-store-dimensions" aria-label="本店四项感官参考">
-        {SENSORY_DIMENSIONS.map((dimension) => {
-          const Icon = SENSORY_ICONS[dimension];
-          const value = profile.display_scores[dimension];
+    <div className="ai-editorial-profile">
+      <section className="ai-editorial-score" aria-label="本店综合参考与置信度">
+        <div><strong>{compositeScore}</strong><span>综合参考</span></div>
+        <div><span>置信度 {profile.confidence}%</span><i><b style={{ width: `${profile.confidence}%` }} /></i></div>
+      </section>
+      <section className="ai-editorial-visit-time">
+        <Clock3 aria-hidden="true" />
+        <div><h3>适合时段</h3><p>{editorialDisplayText(profile.best_time)}</p></div>
+      </section>
+      <div className="ai-editorial-sensory" aria-label="本店四项感官参考">
+        {EDITORIAL_SENSORY_DIMENSIONS.map((dimension) => {
+          const Icon = EDITORIAL_SENSORY_ICONS[dimension];
+          const value = displayScores[dimension];
           return (
-            <div key={dimension}><Icon aria-hidden="true" /><span>{SENSORY_DIMENSION_LABELS[dimension]}</span><i><b style={{ width: `${value}%` }} /></i><strong>{value}</strong></div>
+            <div key={dimension}>
+              <Icon aria-hidden="true" />
+              <span>{EDITORIAL_SENSORY_LABELS[dimension]}</span>
+              <i><b style={{ width: `${value}%` }} /></i>
+              <strong>{value}</strong>
+            </div>
           );
         })}
-      </section>
-      <section className="ai-store-field-note">
+      </div>
+      <section className="ai-editorial-field-note">
         <h3>来自现场</h3>
-        <div><MessageCircleMore aria-hidden="true" /><p>{profile.evidence}</p></div>
-        <small><ShieldCheck aria-hidden="true" />{profile.source_status}</small>
+        <div><MessageSquareText aria-hidden="true" /><p>{editorialDisplayText(profile.evidence)}</p></div>
       </section>
     </div>
   );
 }
 
-function CandidateEvidence({ candidate, context, emit }) {
+function EditorialEvidence({ candidate, context, emit }) {
   const records = buildCandidateCitationView(candidate, context);
   const viewedEvidence = useRef(new Set());
+  const presentation = EDITORIAL_PLACE_PRESENTATIONS[candidate.place_id] ?? null;
 
   if (records.length === 0) return null;
 
-  function recordViewed(record, open) {
-    if (!open || viewedEvidence.current.has(record.evidence_id)) return;
-    viewedEvidence.current.add(record.evidence_id);
-    emit("evidence_record_viewed", "F5", {
-      place_id: candidate.place_id,
-      evidence_id: record.evidence_id,
-      attribute: record.attribute,
-    });
+  const sourceCount = new Set(records.flatMap((record) => record.sources.map((source) => source.source_id))).size;
+  const verifiedDates = records.map((record) => record.verified_at).filter(Boolean).sort();
+  const latestVerifiedAt = verifiedDates.at(-1) ?? "日期未登记";
+  const reliabilityRank = { low: 0, medium: 1, high: 2 };
+  const reliability = records.reduce((lowest, record) => (
+    reliabilityRank[record.reliability] < reliabilityRank[lowest] ? record.reliability : lowest
+  ), "high");
+
+  function evidenceOpened(open) {
+    if (!open) return;
+    for (const record of records) {
+      if (viewedEvidence.current.has(record.evidence_id)) continue;
+      viewedEvidence.current.add(record.evidence_id);
+      emit("evidence_record_viewed", "F5", {
+        place_id: candidate.place_id,
+        evidence_id: record.evidence_id,
+        attribute: record.attribute,
+      });
+    }
   }
 
   function sourceOpened(source) {
@@ -438,15 +744,16 @@ function CandidateEvidence({ candidate, context, emit }) {
   }
 
   return (
-    <section className="ai-candidate-evidence" aria-labelledby="candidate-evidence-title">
-      <h3 id="candidate-evidence-title"><Database aria-hidden="true" />决策依据</h3>
-      <p className="ai-evidence-boundary">以下记录直接支持本轮理由、权衡或硬条件判断。来源内容只作为证据，不是实时状态保证。</p>
-      <div className="ai-evidence-list">
+    <details className="ai-editorial-evidence" onToggle={(event) => evidenceOpened(event.currentTarget.open)}>
+      <summary>
+        <span>{presentation?.evidenceLabel ?? `核实于 ${latestVerifiedAt} · ${RELIABILITY_LABELS[reliability]}`}</span>
+        <strong>查看 {presentation?.sourceCount ?? (sourceCount || records.length)} 条来源 <ExternalLink aria-hidden="true" /></strong>
+      </summary>
+      <div className="ai-editorial-evidence-list">
         {records.map((record) => (
-          <details key={record.evidence_id} onToggle={(event) => recordViewed(record, event.currentTarget.open)}>
-            <summary><strong>{ATTRIBUTE_LABELS[record.attribute] ?? record.attribute}</strong><span>{record.kind_labels.join(" · ")}</span></summary>
+          <div key={record.evidence_id}>
+            <span>{ATTRIBUTE_LABELS[record.attribute] ?? record.attribute} · {record.kind_labels.join(" · ")}</span>
             <p>{record.display_text}</p>
-            <span>核实于 {record.verified_at ?? "日期未登记"} · {record.reliability === "high" ? "高可靠度" : record.reliability === "medium" ? "中可靠度" : "低可靠度"}</span>
             {record.sources.map((source) => source.url ? (
               <a key={source.source_id} href={source.url} target="_blank" rel="noreferrer" onClick={() => sourceOpened(source)}>
                 <span>{source.publisher} · {source.title}</span><ExternalLink aria-hidden="true" />
@@ -454,10 +761,239 @@ function CandidateEvidence({ candidate, context, emit }) {
             ) : (
               <small key={source.source_id}>{source.publisher} · {source.title}</small>
             ))}
-          </details>
+          </div>
         ))}
       </div>
-    </section>
+    </details>
+  );
+}
+
+function EditorialDecisionBubble({ state }) {
+  const { brief, context, selectedPlaceId } = state;
+  const bubbleRef = useRef(null);
+
+  useLayoutEffect(() => {
+    if (!selectedPlaceId) return undefined;
+
+    let animationFrame = 0;
+
+    function measure() {
+      const workspace = document.querySelector(".ai-workspace");
+      const mapWorkspace = document.querySelector(".ai-map-workspace");
+      const masthead = document.querySelector(".ai-topbar");
+      const marker = document.querySelector(`.quiet-marker[data-place-id="${encodeURIComponent(selectedPlaceId)}"]`);
+      const bubble = bubbleRef.current;
+      if (!workspace || !mapWorkspace || !marker || !bubble) return;
+
+      const workspaceRect = workspace.getBoundingClientRect();
+      const mapRect = mapWorkspace.getBoundingClientRect();
+      const mastheadRect = masthead?.getBoundingClientRect() ?? null;
+      const markerRect = marker.getBoundingClientRect();
+      const bubbleRect = bubble.getBoundingClientRect();
+      const edgeInset = 16;
+      const workspaceScrollLeft = workspace.scrollLeft;
+      const workspaceScrollTop = workspace.scrollTop;
+      const minimumLeft = mapRect.left - workspaceRect.left + workspaceScrollLeft + edgeInset;
+      const maximumLeft = Math.max(minimumLeft, mapRect.right - workspaceRect.left + workspaceScrollLeft - bubbleRect.width - edgeInset);
+      const mastheadBottom = mastheadRect ? mastheadRect.bottom - workspaceRect.top + workspaceScrollTop : workspaceScrollTop;
+      const minimumTop = Math.max(edgeInset, mastheadBottom + 12);
+      const maximumTop = Math.max(minimumTop, workspaceScrollTop + workspaceRect.height - bubbleRect.height - edgeInset);
+      const markerCenterX = markerRect.left - workspaceRect.left + workspaceScrollLeft + (markerRect.width / 2);
+      const markerCenterY = markerRect.top - workspaceRect.top + workspaceScrollTop + (markerRect.height / 2);
+      const markerGap = 8;
+      const markerTopAnchor = markerCenterY - (markerRect.height / 2) - markerGap;
+      const markerBottomAnchor = markerCenterY + (markerRect.height / 2) + markerGap;
+      const sourceTailX = 233 / 1536;
+      const sourceTailY = 1015 / 1024;
+      const tailPlacements = [
+        { corner: "lower-left", anchorX: markerCenterX, anchorY: markerTopAnchor, tipX: bubbleRect.width * sourceTailX, tipY: bubbleRect.height * sourceTailY },
+        { corner: "lower-right", anchorX: markerCenterX, anchorY: markerTopAnchor, tipX: bubbleRect.width * (1 - sourceTailX), tipY: bubbleRect.height * sourceTailY },
+        { corner: "upper-left", anchorX: markerCenterX, anchorY: markerBottomAnchor, tipX: bubbleRect.width * sourceTailX, tipY: bubbleRect.height * (1 - sourceTailY) },
+        { corner: "upper-right", anchorX: markerCenterX, anchorY: markerBottomAnchor, tipX: bubbleRect.width * (1 - sourceTailX), tipY: bubbleRect.height * (1 - sourceTailY) },
+      ];
+      const scoredPlacements = tailPlacements.map((placement, preference) => {
+        const left = placement.anchorX - placement.tipX;
+        const top = placement.anchorY - placement.tipY;
+        const overflow = Math.max(0, minimumLeft - left)
+          + Math.max(0, left - maximumLeft)
+          + Math.max(0, minimumTop - top)
+          + Math.max(0, top - maximumTop);
+        return { ...placement, left, top, score: (overflow * 1000) + preference };
+      });
+      const placement = scoredPlacements.reduce((best, item) => item.score < best.score ? item : best);
+
+      bubble.style.setProperty("--ai-editorial-bubble-left", `${placement.left.toFixed(2)}px`);
+      bubble.style.setProperty("--ai-editorial-bubble-top", `${placement.top.toFixed(2)}px`);
+      bubble.dataset.tailCorner = placement.corner;
+    }
+
+    function followMarker() {
+      measure();
+      animationFrame = window.requestAnimationFrame(followMarker);
+    }
+
+    animationFrame = window.requestAnimationFrame(followMarker);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [selectedPlaceId]);
+
+  if (!brief || !selectedPlaceId) return null;
+  const candidate = brief.candidates.find((item) => item.place_id === selectedPlaceId) ?? null;
+  const place = context?.places.find((item) => item.place_id === selectedPlaceId) ?? null;
+  const exploration = context?.exploration?.places.find((item) => item.place_id === selectedPlaceId) ?? null;
+  if (!place) return null;
+  const profile = getSensoryReferenceProfile(place.place_id, brief.request.time.arrival_at);
+  const presentation = EDITORIAL_PLACE_PRESENTATIONS[place.place_id] ?? null;
+
+  if (candidate) {
+    const candidateEvidence = candidate.fit_reasons.slice(0, 2).map((reason) => reason.text).join("；");
+    const evidence = presentation?.bubbleEvidence ?? (candidateEvidence || profile?.evidence || "已纳入本轮比较");
+    const tradeoff = presentation?.bubbleTradeoff ?? candidate.tradeoffs[0]?.text ?? "暂无额外取舍";
+    return (
+      <aside
+        ref={bubbleRef}
+        className="ai-editorial-decision-bubble is-recommended"
+        aria-label={`${place.canonical_name}本轮推荐摘要：${ROLE_LABELS[candidate.role]}；${evidence}；需要权衡：${tradeoff}；${CONFIDENCE_LABELS[candidate.confidence.level]}`}
+      >
+        <img className="ai-editorial-decision-bubble-frame" src="/assets/editorial/speech-bubble-light-blue-map-fill.png" alt="" aria-hidden="true" />
+        <div className="ai-editorial-decision-bubble-content">
+          <strong>AI 本轮推荐 · {ROLE_LABELS[candidate.role]}</strong>
+          <p>{evidence}</p>
+          <p>需要权衡：{tradeoff}</p>
+          <small>{CONFIDENCE_LABELS[candidate.confidence.level]}</small>
+        </div>
+      </aside>
+    );
+  }
+
+  if (!exploration) return null;
+  const reason = nonRecommendationReason(exploration, brief.request, brief.candidates.length);
+  return (
+    <aside
+      ref={bubbleRef}
+      className="ai-editorial-decision-bubble is-not-recommended"
+      aria-label={`${place.canonical_name}未推荐摘要：${reason}；登记资料可靠度 ${profile?.confidence ?? "待补充"}%`}
+  >
+      <img className="ai-editorial-decision-bubble-frame" src="/assets/editorial/speech-bubble-light-blue-map-fill.png" alt="" aria-hidden="true" />
+      <div className="ai-editorial-decision-bubble-content">
+        <strong>AI 本轮未推荐</strong>
+        <p>{reason}</p>
+        <small>登记资料可靠度 {profile?.confidence ?? "待补充"}%</small>
+      </div>
+    </aside>
+  );
+}
+
+function EditorialScene({ place }) {
+  const scene = place.asset ? getCafeSceneMedia(place.asset)?.scene?.src : null;
+  if (!scene) return <p className="ai-asset-pending">门店水彩场景待补充，当前仍可查看已核实的文字证据。</p>;
+  return <figure className="ai-editorial-scene"><img src={scene} alt={`${place.canonical_name}水彩场景`} /></figure>;
+}
+
+function EditorialSourceStatus({ placeId, arrivalAt }) {
+  const profile = getSensoryReferenceProfile(placeId, arrivalAt);
+  if (!profile) return null;
+  return (
+    <details className="ai-editorial-evidence is-source-status">
+      <summary><span>登记资料 · 可靠度 {profile.confidence}%</span><strong>查看来源状态</strong></summary>
+      <p>{profile.source_status}</p>
+    </details>
+  );
+}
+
+function EditorialConnector({ selectedPlaceId }) {
+  const [geometry, setGeometry] = useState(null);
+
+  useEffect(() => {
+    if (!selectedPlaceId) {
+      setGeometry(null);
+      return undefined;
+    }
+
+    let frame = 0;
+    let animationFrame = 0;
+    const startedAt = window.performance.now();
+    const observers = [];
+
+    function measure() {
+      const workspace = document.querySelector(".ai-workspace");
+      const marker = document.querySelector(".quiet-marker.is-selected");
+      const scene = document.querySelector(".ai-editorial-scene img");
+      if (!workspace || !marker || !scene) return;
+
+      const workspaceRect = workspace.getBoundingClientRect();
+      const markerRect = marker.getBoundingClientRect();
+      const sceneRect = scene.getBoundingClientRect();
+      const startX = markerRect.left - workspaceRect.left + markerRect.width * 0.78;
+      const startY = markerRect.top - workspaceRect.top + markerRect.height * 0.5;
+      const endX = sceneRect.left - workspaceRect.left + sceneRect.width * 0.07;
+      const endY = sceneRect.top - workspaceRect.top + sceneRect.height * 0.57;
+      const distance = Math.max(160, endX - startX);
+      const middleX = startX + distance * 0.5;
+      const middleY = startY + ((endY - startY) * 0.5);
+      const amplitude = Math.min(74, Math.max(42, distance * 0.07, Math.abs(endY - startY) * 0.28));
+      const path = [
+        `M ${startX.toFixed(2)} ${startY.toFixed(2)}`,
+        `C ${(startX + distance * 0.12).toFixed(2)} ${(startY - amplitude).toFixed(2)},`,
+        `${(startX + distance * 0.34).toFixed(2)} ${(middleY - amplitude).toFixed(2)},`,
+        `${middleX.toFixed(2)} ${middleY.toFixed(2)}`,
+        `C ${(startX + distance * 0.66).toFixed(2)} ${(middleY + amplitude).toFixed(2)},`,
+        `${(startX + distance * 0.88).toFixed(2)} ${(endY + amplitude).toFixed(2)},`,
+        `${endX.toFixed(2)} ${endY.toFixed(2)}`,
+      ].join(" ");
+
+      setGeometry({ width: workspaceRect.width, height: workspaceRect.height, path });
+    }
+
+    function scheduleMeasure() {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(measure);
+    }
+
+    function followReframe(now) {
+      measure();
+      if (now - startedAt < 900) animationFrame = window.requestAnimationFrame(followReframe);
+    }
+
+    scheduleMeasure();
+    animationFrame = window.requestAnimationFrame(followReframe);
+    window.addEventListener("resize", scheduleMeasure);
+
+    if (typeof ResizeObserver === "function") {
+      for (const element of [
+        document.querySelector(".ai-workspace"),
+        document.querySelector(".quiet-marker.is-selected"),
+        document.querySelector(".ai-editorial-scene"),
+      ]) {
+        if (!element) continue;
+        const observer = new ResizeObserver(scheduleMeasure);
+        observer.observe(element);
+        observers.push(observer);
+      }
+    }
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("resize", scheduleMeasure);
+      observers.forEach((observer) => observer.disconnect());
+    };
+  }, [selectedPlaceId]);
+
+  if (!geometry) return null;
+  return (
+    <svg
+      key={selectedPlaceId}
+      className="ai-editorial-connector"
+      viewBox={`0 0 ${geometry.width} ${geometry.height}`}
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <path className="ai-editorial-connector-shadow" d={geometry.path} pathLength="1" />
+      <path className="ai-editorial-connector-line" d={geometry.path} pathLength="1" />
+    </svg>
   );
 }
 
@@ -467,50 +1003,41 @@ function DecisionRail({ state, onClose, emit }) {
   const candidate = brief.candidates.find((item) => item.place_id === selectedPlaceId) ?? null;
   const place = context?.places.find((item) => item.place_id === selectedPlaceId) ?? null;
   const exploration = context?.exploration?.places.find((item) => item.place_id === selectedPlaceId) ?? null;
+  const presentation = place ? EDITORIAL_PLACE_PRESENTATIONS[place.place_id] ?? null : null;
 
   if (candidate && place) {
     return (
-      <aside className="ai-decision-rail" aria-labelledby="place-detail-title">
+      <aside className="ai-decision-rail is-store-detail" aria-labelledby="place-detail-title">
         <button className="ai-rail-close" type="button" onClick={onClose} aria-label="关闭门店证据"><X aria-hidden="true" /></button>
-        <div className="ai-store-status is-recommended">
-          <span>AI 本轮推荐 · {ROLE_LABELS[candidate.role]}</span>
-          <strong>{candidate.fit_reasons.map((reason) => reason.text).join("；")}</strong>
-          {candidate.tradeoffs.length > 0 && <p>需要权衡：{candidate.tradeoffs.map((reason) => reason.text).join("；")}</p>}
-          <small>{CONFIDENCE_LABELS[candidate.confidence.level]}</small>
+        <div className="ai-editorial-heading">
+          <span>{presentation?.roleLabel ?? recommendationRoleLabel(candidate.role)}</span>
+          <h2 id="place-detail-title">{editorialStoreName(place.canonical_name)}</h2>
+          <p>{place.address}</p>
         </div>
-        <h2 id="place-detail-title">{place.canonical_name}</h2>
-        <p className="ai-place-address"><MapPin aria-hidden="true" />{place.address}</p>
-        {!place.asset && <p className="ai-asset-pending">门店水彩场景待补充，当前仍可查看已核实的文字证据。</p>}
-        <CandidateEvidence candidate={candidate} context={context} emit={emit} />
-        <StoreProfile placeId={place.place_id} score={exploration?.score} arrivalAt={brief.request.time.arrival_at} />
+        <EditorialScene place={place} />
+        <StoreProfile placeId={place.place_id} arrivalAt={brief.request.time.arrival_at} score={exploration?.score} />
+        <EditorialEvidence candidate={candidate} context={context} emit={emit} />
       </aside>
     );
   }
 
   if (exploration && place) {
     return (
-      <aside className="ai-decision-rail" aria-labelledby="place-detail-title">
+      <aside className="ai-decision-rail is-store-detail is-not-recommended" aria-labelledby="place-detail-title">
         <button className="ai-rail-close" type="button" onClick={onClose} aria-label="关闭门店证据"><X aria-hidden="true" /></button>
-        <div className="ai-store-status is-not-recommended"><span>本轮未推荐</span><strong>{nonRecommendationReason(exploration, brief.request, brief.candidates.length)}</strong></div>
-        <h2 id="place-detail-title">{place.canonical_name}</h2>
-        <p className="ai-place-address"><MapPin aria-hidden="true" />{place.address}</p>
-        {!place.asset && <p className="ai-asset-pending">门店水彩场景待补充，当前仍可查看已核实的文字证据。</p>}
-        <StoreProfile placeId={place.place_id} score={exploration.score} arrivalAt={brief.request.time.arrival_at} />
+        <div className="ai-editorial-heading">
+          <span>本轮未推荐</span>
+          <h2 id="place-detail-title">{editorialStoreName(place.canonical_name)}</h2>
+          <p>{place.address}</p>
+        </div>
+        <EditorialScene place={place} />
+        <StoreProfile placeId={place.place_id} arrivalAt={brief.request.time.arrival_at} score={exploration.score} />
+        <EditorialSourceStatus placeId={place.place_id} arrivalAt={brief.request.time.arrival_at} />
       </aside>
     );
   }
 
-  const unknowns = [...new Set(brief.candidates.flatMap((item) => item.unknowns))];
-  return (
-    <aside className="ai-decision-rail" aria-labelledby="decision-summary-title">
-      <span className="ai-rail-kicker">已通过证据校验</span>
-      <h2 id="decision-summary-title">本次决策摘要</h2>
-      <p>系统只比较了黄浦区登记范围内、没有明确违反硬约束的门店。候选理由来自已登记证据，实时座位与当前声量不会被当作事实。</p>
-      <section><h3><Sparkles aria-hidden="true" />本次假设</h3><p>{brief.request.assumptions.length ? brief.request.assumptions.join("；") : "没有替用户增加未确认假设"}</p></section>
-      <section><h3><CircleHelp aria-hidden="true" />仍然未知</h3><p>{unknowns.length ? unknowns.map((item) => ATTRIBUTE_LABELS[item] ?? item).join("、") : "本次候选没有额外未知项"}</p></section>
-      <section><h3><ShieldCheck aria-hidden="true" />证据范围</h3><p>黄浦区 10 家 · 公开来源 · v{brief.versions.evidence_store}</p></section>
-    </aside>
-  );
+  return null;
 }
 
 function MethodDialog({ onClose }) {
@@ -536,11 +1063,13 @@ export function QuietLensDecisionApp() {
   const [correction, setCorrection] = useState("");
   const [theme, setTheme] = useState("light");
   const [methodOpen, setMethodOpen] = useState(false);
+  const [requestPanelOpen, setRequestPanelOpen] = useState(false);
   const [mapRegion, setMapRegion] = useState("shanghai");
   const [requestId, setRequestId] = useState(() => createRequestId());
   const sessionId = useMemo(() => getSessionId(), []);
   const analyticsContext = useRef({ request_id: requestId, model: "not-invoked", prompt: "not-invoked" });
   const exposed = useRef(new Set());
+  const [sceneStatuses, setSceneStatuses] = useState({});
   analyticsContext.current = {
     request_id: requestId,
     model: state.brief?.versions?.model ?? state.versions?.intent_model ?? "not-invoked",
@@ -585,6 +1114,34 @@ export function QuietLensDecisionApp() {
       emit("page_state_viewed", state.stage, { state_code: state.stage.toLowerCase() });
     }
   }, [emit, requestId, state]);
+
+  useEffect(() => {
+    if (state.brief?.status !== "published" || !state.context?.places) return undefined;
+    const urls = selectScenePrefetchUrls(
+      state.context.places,
+      state.brief.candidates.map((candidate) => candidate.place_id),
+    );
+    urls.forEach((url, index) => prefetchSceneUrl(url, index === 0 ? "high" : "low"));
+    return undefined;
+  }, [state.brief, state.context]);
+
+  function prefetchSceneUrl(url, fetchPriority = "low") {
+    if (!url) return;
+    const currentStatus = getDecodedImageStatus(url);
+    setSceneStatuses((current) => current[url] === currentStatus && currentStatus !== "idle"
+      ? current
+      : { ...current, [url]: currentStatus === "idle" ? "loading" : currentStatus });
+    if (currentStatus === "ready" || currentStatus === "failed") return;
+    preloadDecodedImage(url, { fetchPriority })
+      .then(() => setSceneStatuses((current) => ({ ...current, [url]: "ready" })))
+      .catch(() => setSceneStatuses((current) => ({ ...current, [url]: "failed" })));
+  }
+
+  function prefetchPlaceScene(placeId, source = "intent") {
+    const place = state.context?.places?.find((item) => item.place_id === placeId);
+    const url = getCafeSceneMedia(place?.asset)?.scene?.src;
+    prefetchSceneUrl(url, source.includes("click") || source.includes("touch") ? "high" : "low");
+  }
 
   async function runRecommendation(request) {
     dispatch({ type: "DECISION_STARTED" });
@@ -686,6 +1243,7 @@ export function QuietLensDecisionApp() {
     const candidate = state.brief.candidates.find((item) => item.place_id === placeId);
     const exploration = state.context?.exploration?.places.find((item) => item.place_id === placeId);
     if (!candidate && !exploration) return;
+    prefetchPlaceScene(placeId, `${source}_click`);
     dispatch({ type: "PLACE_SELECTED", placeId });
     if (candidate) {
       emit("candidate_selected", "F4", { place_id: placeId, role: candidate.role, source });
@@ -711,6 +1269,7 @@ export function QuietLensDecisionApp() {
     dispatch({ type: "RESET" });
     setInput("");
     setCorrection("");
+    setRequestPanelOpen(false);
     setMapRegion("shanghai");
     const nextId = createRequestId();
     setRequestId(nextId);
@@ -723,11 +1282,10 @@ export function QuietLensDecisionApp() {
     return [...placeById.values()].map((place) => {
       const match = candidateById.get(place.place_id);
       const exploration = explorationById.get(place.place_id);
-      const explorationConflict = exploration?.eligibility === "rejected"
-        ? "已有条件与本次硬要求冲突"
-        : exploration?.eligibility === "uncertain"
-          ? "部分关键条件尚未核实"
-          : "未进入 AI 本轮 3 个推荐";
+      const media = getCafeSceneMedia(place.asset);
+      const nonRecommendationText = !match && exploration
+        ? nonRecommendationReason(exploration, state.brief.request, state.brief.candidates.length)
+        : null;
       return {
         id: place.place_id,
         name: place.canonical_name,
@@ -735,17 +1293,25 @@ export function QuietLensDecisionApp() {
         address: place.address,
         district: "黄浦区",
         position: [place.location.latitude, place.location.longitude],
-        scene: place.asset,
-        conflict: match?.candidate.tradeoffs[0]?.text ?? explorationConflict,
+        scene: media?.scene?.src ?? null,
+        sceneStatus: media?.scene?.src
+          ? sceneStatuses[media.scene.src] ?? getDecodedImageStatus(media.scene.src)
+          : "failed",
+        notice: sceneNoticeForPlace({
+          candidate: match?.candidate ?? null,
+          nonRecommendationText,
+          unknownLabel: (field) => ATTRIBUTE_LABELS[field] ?? field,
+        }),
         role: match?.candidate.role ?? null,
         matchScore: exploration?.score ?? null,
         markerLabel: match ? match.index + 1 : exploration?.score ?? "待核",
         selectable: Boolean(match || exploration),
       };
     });
-  }, [state.brief, state.context]);
+  }, [sceneStatuses, state.brief, state.context]);
   const selectedCafe = mapCafes.find((cafe) => cafe.id === state.selectedPlaceId) ?? null;
-  const showRail = state.brief?.status === "published";
+  const hasPublishedBrief = state.brief?.status === "published";
+  const showRail = Boolean(hasPublishedBrief && state.selectedPlaceId);
   const busy = ["parsing", "retrieving", "correcting"].includes(state.status);
   const headerArea = state.stage === "F0" ? "上海" : state.request?.location.area ?? "上海";
 
@@ -762,53 +1328,93 @@ export function QuietLensDecisionApp() {
 
   return (
     <div className="theme-root" data-theme={theme}>
-      <div className="mobile-notice"><img src="/assets/brand/quietlens-mark.png" alt="" /><h1>QuietLens</h1><p>当前阶段专注桌面决策体验，请使用更宽的视口打开。</p></div>
-      <main id="app" className="app-shell ai-shell">
-        <Header
-          theme={theme}
-          onTheme={() => setTheme((value) => value === "light" ? "dark" : "light")}
-          onMethod={openMethod}
-          onReset={reset}
-          hasDecision={state.stage !== "F0"}
-          area={headerArea}
-          arrivalAt={state.request?.time.arrival_at}
-        />
-        <div className={`workspace ai-workspace ${showRail ? "has-rail" : ""}`}>
-          <aside className="sidebar ai-sidebar">
-            {state.stage === "F0" ? (
-              <section className="ai-entry">
-                <span className="ai-stage-label"><Sparkles aria-hidden="true" />新决定</span>
-                <h1>你现在需要什么样的地方？</h1>
-                <Composer value={input} onChange={setInput} onSubmit={submitInitial} disabled={busy} />
-                <div className="ai-examples"><button type="button" onClick={() => setInput("明天下午两点，我想在外滩附近专注工作 90 分钟，自然光很重要。")}>限时专注</button><button type="button" onClick={() => setInput("我现在很累，想在黄浦找个低刺激、不要太吵的地方休息。")}>低刺激恢复</button></div>
-              </section>
-            ) : (
-              <>
-                <section className="ai-original-request"><span>你说的是</span><p>{input || correction || "已保留本次需求"}</p></section>
+      <div className="mobile-notice"><img src="/assets/brand/quietlens-mark-ui-v1.png" alt="" /><h1>QuietLens</h1><p>当前阶段专注桌面决策体验，请使用更宽的视口打开。</p></div>
+      <main id="app" className={`app-shell ai-shell is-${state.stage.toLowerCase()} ${hasPublishedBrief ? "has-published-brief" : ""} ${showRail ? "has-decision-rail has-store-detail" : ""} ${hasPublishedBrief && requestPanelOpen ? "is-request-panel-open" : ""}`}>
+        {state.stage === "F0" ? (
+          <VisualHomepage
+            theme={theme}
+            value={input}
+            onChange={setInput}
+            onSubmit={submitInitial}
+            disabled={busy}
+            onTheme={() => setTheme((value) => value === "light" ? "dark" : "light")}
+            onMethod={openMethod}
+          />
+        ) : (
+          <>
+            <Header
+              theme={theme}
+              onTheme={() => setTheme((value) => value === "light" ? "dark" : "light")}
+              onMethod={openMethod}
+              onReset={reset}
+              hasDecision
+              area={headerArea}
+              arrivalAt={state.request?.time.arrival_at}
+              actionsCovered={showRail}
+            />
+            <div className={`workspace ai-workspace ${hasPublishedBrief ? "has-published-brief" : ""} ${showRail ? "has-rail has-store-detail" : ""} ${hasPublishedBrief && requestPanelOpen ? "is-request-panel-open" : ""}`}>
+              <img
+                className="ai-sidebar-paper-wash"
+                src="/assets/homepage/quietlens-decision-paper-wash-v1.png"
+                alt=""
+                aria-hidden="true"
+              />
+              <aside
+                id="quietlens-request-panel"
+                className={`sidebar ai-sidebar ${hasPublishedBrief ? (requestPanelOpen ? "is-panel-open" : "is-panel-collapsed") : ""}`}
+                inert={hasPublishedBrief && !requestPanelOpen ? "true" : undefined}
+              >
+                {!state.request && <section className="ai-original-request"><span>你说的是</span><p>“{input || correction || "已保留本次需求"}”</p></section>}
                 {state.stage === "F1" && !state.request && <ProcessStatus stage="F1" />}
+                {state.request && <IntentSummary request={state.request} originalText={input || correction} changes={state.changes} disabled={busy} onEdit={editIntentField} onEditStarted={(row) => emit("intent_field_edit_started", "F1", { field_name: row.kind, previous_state: row.value === "尚未指定" ? "empty" : "set" })} />}
                 {state.stage === "F2" && state.clarification && <Clarification clarification={state.clarification} onAnswer={answerClarification} onTextAnswer={answerClarificationText} disabled={busy} />}
-                {state.request && <IntentSummary request={state.request} changes={state.changes} disabled={busy} onEdit={editIntentField} onEditStarted={(row) => emit("intent_field_edit_started", "F1", { field_name: row.kind, previous_state: row.value === "尚未指定" ? "empty" : "set" })} />}
                 {state.stage === "F3" && <ProcessStatus stage="F3" />}
                 {state.stage === "F6" && <ProcessStatus stage="F6" />}
-                {state.brief?.status === "published" && <CandidateList brief={state.brief} context={state.context} selectedId={state.selectedPlaceId} onSelect={selectPlace} />}
+                {state.brief?.status === "published" && <CandidateList brief={state.brief} context={state.context} selectedId={state.selectedPlaceId} onSelect={selectPlace} onPrefetch={prefetchPlaceScene} />}
                 {state.stage === "F7" && <FailureState state={state} onRetry={() => state.request ? runRecommendation(state.request) : reset()} onReset={reset} />}
                 {state.brief?.status === "published" && <div className="ai-correction"><div className="ai-correction-heading"><strong>继续修改本次条件</strong><button type="button" onClick={reset}><RotateCcw aria-hidden="true" />开始新问题</button></div><p>这里会保留上面的任务、时间和硬条件。</p><Composer value={correction} onChange={setCorrection} onSubmit={submitCorrection} disabled={busy} compact onFocus={() => emit("correction_started", "F6", {})} /></div>}
-              </>
-            )}
-          </aside>
-          <section className="map-workspace ai-map-workspace">
-            <MapStage
-              cafes={mapCafes}
-              region={mapRegion}
-              drawerOpen={false}
-              selectedCafe={selectedCafe}
-              onSelect={(placeId) => selectPlace(placeId, "map")}
-              onClearSelection={() => clearPlace("map_blank")}
-              onRegionChange={changeMapRegion}
-            />
-          </section>
-          {showRail && <DecisionRail state={state} onClose={() => clearPlace("close_button")} emit={emit} />}
-        </div>
+              </aside>
+              {hasPublishedBrief && (
+                <button
+                  className={`ai-request-drawer-toggle ${requestPanelOpen ? "is-open" : ""}`}
+                  type="button"
+                  aria-expanded={requestPanelOpen}
+                  aria-controls="quietlens-request-panel"
+                  aria-label={requestPanelOpen ? "收起本次需求" : "展开本次需求"}
+                  onClick={() => setRequestPanelOpen((open) => !open)}
+                >
+                  <MessageSquareText aria-hidden="true" />
+                  <span>本次需求</span>
+                  <ChevronDown aria-hidden="true" />
+                </button>
+              )}
+              <section className="map-workspace ai-map-workspace">
+                <MapStage
+                  cafes={mapCafes}
+                  region={mapRegion}
+                  drawerOpen={showRail}
+                  requestPanelOpen={requestPanelOpen}
+                  resultPublished={hasPublishedBrief}
+                  selectedCafe={selectedCafe}
+                  onSelect={(placeId) => selectPlace(placeId, "map")}
+                  onPrefetch={prefetchPlaceScene}
+                  onClearSelection={() => clearPlace("map_blank")}
+                  onRegionChange={changeMapRegion}
+                />
+              </section>
+              {showRail && state.selectedPlaceId && (
+                <img
+                  className="ai-editorial-paper-sheet"
+                  src="/assets/editorial/quietlens-f5-paper-sheet-imagegen-v1.png"
+                  alt=""
+                  aria-hidden="true"
+                />
+              )}
+              {showRail && <EditorialDecisionBubble state={state} />}
+              {showRail && <DecisionRail state={state} onClose={() => clearPlace("close_button")} emit={emit} />}
+            </div>
+          </>
+        )}
       </main>
       {methodOpen && <MethodDialog onClose={() => setMethodOpen(false)} />}
     </div>
