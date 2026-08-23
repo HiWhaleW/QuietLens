@@ -1,6 +1,7 @@
 const MANIFEST_VERSION = "1.0.0";
 const SESSION_VERSION = "1.0.0";
-export const BETA_INVITATION_COUNT = 3;
+export const BETA_INVITATION_DEFAULT_COUNT = 3;
+export const BETA_INVITATION_MAX_COUNT = 20;
 const COOKIE_NAME = "ql_beta_session";
 const DEFAULT_TTL_SECONDS = 8 * 60 * 60;
 const MIN_TTL_SECONDS = 5 * 60;
@@ -79,6 +80,15 @@ function parseTtl(value) {
   return ttl;
 }
 
+function parseInvitationCount(value) {
+  if (value === undefined || value === "") return BETA_INVITATION_DEFAULT_COUNT;
+  const count = Number(value);
+  if (!Number.isSafeInteger(count) || count < 1 || count > BETA_INVITATION_MAX_COUNT) {
+    throw new BetaAccessError("BETA_ACCESS_CONFIG_INVALID");
+  }
+  return count;
+}
+
 function assertExactKeys(value, allowed) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new BetaAccessError("BETA_ACCESS_CONFIG_INVALID");
@@ -102,9 +112,10 @@ export function parseBetaAccessConfig(env) {
     throw new BetaAccessError("BETA_ACCESS_CONFIG_INVALID");
   }
   assertExactKeys(manifest, ["schema_version", "invitations"]);
+  const invitationCount = parseInvitationCount(env?.QL_BETA_INVITATION_COUNT);
   if (manifest.schema_version !== MANIFEST_VERSION
     || !Array.isArray(manifest.invitations)
-    || manifest.invitations.length !== BETA_INVITATION_COUNT) {
+    || manifest.invitations.length !== invitationCount) {
     throw new BetaAccessError("BETA_ACCESS_CONFIG_INVALID");
   }
 
@@ -138,6 +149,7 @@ export function parseBetaAccessConfig(env) {
     enabled: true,
     inviteSecret,
     sessionSecret,
+    invitationCount,
     ttlSeconds: parseTtl(env.QL_BETA_SESSION_TTL_SECONDS),
     invitations: Object.freeze(invitations),
   });

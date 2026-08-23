@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 
 import {
   betaAccessHealth,
@@ -14,9 +19,10 @@ import worker from "../worker/index.js";
 
 const inviteSecret = "synthetic-invite-secret-00000000000000000000";
 const sessionSecret = "synthetic-session-secret-0000000000000000000";
+const execFileAsync = promisify(execFile);
 
-async function betaFixture(overrides = {}) {
-  const codes = Array.from({ length: 3 }, (_, index) => `QUIETLENS-${String(index + 1).padStart(2, "0")}-SYNTHETIC_token`);
+async function betaFixture(overrides = {}, invitationCount = 3) {
+  const codes = Array.from({ length: invitationCount }, (_, index) => `QUIETLENS-${String(index + 1).padStart(2, "0")}-SYNTHETIC_token`);
   const invitations = await Promise.all(codes.map(async (code, index) => ({
     invite_id: `beta-invite-${String(index + 1).padStart(2, "0")}`,
     participant_id: `beta-participant-${String(index + 1).padStart(2, "0")}`,
@@ -27,6 +33,7 @@ async function betaFixture(overrides = {}) {
     codes,
     env: {
       QL_BETA_INVITE_ENABLED: "true",
+      QL_BETA_INVITATION_COUNT: String(invitationCount),
       QL_BETA_INVITE_SECRET: inviteSecret,
       QL_BETA_SESSION_SECRET: sessionSecret,
       QL_BETA_SESSION_TTL_SECONDS: "3600",
@@ -45,10 +52,11 @@ test("keeps beta admission disabled by default", () => {
   assert.deepEqual(betaAccessHealth({}), { ready: true, status: "disabled" });
 });
 
-test("requires exactly three unique opaque invitations and independent secrets", async () => {
+test("keeps the current three-invite baseline and requires the declared count", async () => {
   const fixture = await betaFixture();
   const config = parseBetaAccessConfig(fixture.env);
   assert.equal(config.invitations.length, 3);
+  assert.equal(config.invitationCount, 3);
   assert.equal(config.invitations.every((item) => !Object.hasOwn(item, "code")), true);
 
   const two = JSON.parse(fixture.env.QL_BETA_INVITE_MANIFEST_JSON);
@@ -62,6 +70,69 @@ test("requires exactly three unique opaque invitations and independent secrets",
     QL_BETA_SESSION_SECRET: inviteSecret,
   }), /BETA_ACCESS_CONFIG_INVALID/);
 });
+
+test("accepts exactly twenty independent invitations for Stage 3 and rejects count drift", async () => {
+  const fixture = await betaFixture({}, 20);
+  const config = parseBetaAccessConfig(fixture.env);
+  assert.equal(config.invitationCount, 20);
+  assert.equal(config.invitations.length, 20);
+  assert.equal(new Set(config.invitations.map(({ invite_id }) => invite_id)).size, 20);
+  assert.equal(new Set(config.invitations.map(({ participant_id }) => participant_id)).size, 20);
+
+  for (const declaredCount of ["19", "21", "0", "not-a-number"]) {
+    assert.throws(() => parseBetaAccessConfig({
+      ...fixture.env,
+      QL_BETA_INVITATION_COUNT: declaredCount,
+    }), /BETA_ACCESS_CONFIG_INVALID/);
+  }
+});
+
+test("extends three invitations to twenty without rotating existing codes or secrets", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "quietlens-invite-extension-"));
+  const originalDirectory = path.join(root, "original");
+  const expandedDirectory = path.join(root, "expanded");
+  try {
+    await execFileAsync(process.execPath, [
+      "scripts/generate-beta-invites.mjs",
+      `--output=${originalDirectory}`,
+      "--count=3",
+    ]);
+    const legacyEnvironmentPath = path.join(originalDirectory, "beta-environment.env");
+    const legacyEnvironment = (await readFile(legacyEnvironmentPath, "utf8"))
+      .split(/\r?\n/u)
+      .filter((line) => !line.startsWith("QL_BETA_INVITATION_COUNT="))
+      .join("\n");
+    await writeFile(legacyEnvironmentPath, legacyEnvironment, { mode: 0o600 });
+    await execFileAsync(process.execPath, [
+      "scripts/generate-beta-invites.mjs",
+      `--output=${expandedDirectory}`,
+      `--extend-from=${originalDirectory}`,
+      "--count=20",
+    ]);
+
+    const originalDistribution = JSON.parse(await readFile(path.join(originalDirectory, "invite-distribution.json"), "utf8"));
+    const expandedDistribution = JSON.parse(await readFile(path.join(expandedDirectory, "invite-distribution.json"), "utf8"));
+    const originalEnvironment = parseTestEnvironment(await readFile(path.join(originalDirectory, "beta-environment.env"), "utf8"));
+    const expandedEnvironment = parseTestEnvironment(await readFile(path.join(expandedDirectory, "beta-environment.env"), "utf8"));
+
+    assert.equal(expandedDistribution.invitations.length, 20);
+    assert.deepEqual(expandedDistribution.invitations.slice(0, 3), originalDistribution.invitations);
+    assert.equal(expandedEnvironment.QL_BETA_INVITE_SECRET, originalEnvironment.QL_BETA_INVITE_SECRET);
+    assert.equal(expandedEnvironment.QL_BETA_SESSION_SECRET, originalEnvironment.QL_BETA_SESSION_SECRET);
+    assert.equal(expandedEnvironment.QL_BETA_INVITATION_COUNT, "20");
+    assert.equal((await stat(path.join(expandedDirectory, "invite-distribution.json"))).mode & 0o777, 0o600);
+    assert.equal((await stat(path.join(expandedDirectory, "beta-environment.env"))).mode & 0o777, 0o600);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+function parseTestEnvironment(source) {
+  return Object.fromEntries(source.split(/\r?\n/u).filter(Boolean).map((line) => {
+    const separator = line.indexOf("=");
+    return [line.slice(0, separator), line.slice(separator + 1)];
+  }));
+}
 
 test("redeems a synthetic invite without exposing its raw value", async () => {
   const fixture = await betaFixture();
@@ -132,6 +203,38 @@ test("injects the server-verified participant and overwrites a spoofed header", 
   assert.equal(authorization.request.headers.get("x-quietlens-beta-participant-id"), "beta-participant-01");
 });
 
+test("keeps all three participant sessions isolated and revokes only the selected invitation", async () => {
+  const fixture = await betaFixture();
+  const config = parseBetaAccessConfig(fixture.env);
+  const sessions = await Promise.all(config.invitations.map(async (invitation) => createBetaSession(invitation, config)));
+
+  for (const [index, session] of sessions.entries()) {
+    const nextParticipant = `beta-participant-${String((index + 1) % 3 + 1).padStart(2, "0")}`;
+    const authorization = await authorizeBetaApiRequest(new Request("https://quietlens.test/api/missing", {
+      headers: {
+        cookie: `ql_beta_session=${session.token}`,
+        "x-quietlens-beta-participant-id": nextParticipant,
+      },
+    }), fixture.env);
+    assert.equal(authorization.allowed, true);
+    assert.equal(
+      authorization.request.headers.get("x-quietlens-beta-participant-id"),
+      `beta-participant-${String(index + 1).padStart(2, "0")}`,
+    );
+  }
+
+  const manifest = JSON.parse(fixture.env.QL_BETA_INVITE_MANIFEST_JSON);
+  manifest.invitations[0].status = "revoked";
+  const revokedEnv = { ...fixture.env, QL_BETA_INVITE_MANIFEST_JSON: JSON.stringify(manifest) };
+  const authorizations = await Promise.all(sessions.map((session) => authorizeBetaApiRequest(
+    new Request("https://quietlens.test/api/missing", {
+      headers: { cookie: `ql_beta_session=${session.token}` },
+    }),
+    revokedEnv,
+  )));
+  assert.deepEqual(authorizations.map(({ allowed }) => allowed), [false, true, true]);
+});
+
 test("blocks every non-health API until a beta session is verified", async () => {
   const fixture = await betaFixture();
   const blocked = await worker.fetch(new Request("https://quietlens.test/api/missing"), fixture.env);
@@ -165,4 +268,110 @@ test("clears the beta cookie without returning invitation or participant data", 
   assert.equal(response.status, 200);
   assert.match(response.headers.get("set-cookie"), /Max-Age=0/u);
   assert.deepEqual(await response.json(), { data: { authenticated: false } });
+});
+
+test("deletes only the authenticated participant's minimum beta data and returns a privacy-minimized receipt", async () => {
+  const fixture = await betaFixture();
+  const config = parseBetaAccessConfig(fixture.env);
+  const records = new Map(config.invitations.map((invitation, index) => [
+    invitation.participant_id,
+    [
+      { type: "session" },
+      { type: "decision_request" },
+      { type: "analytics_event" },
+      ...(index === 0 ? [{ type: "feedback_record" }, { type: "cost_observation" }] : []),
+    ],
+  ]));
+  const store = {
+    async deleteParticipantData(participantId) {
+      const participantRecords = records.get(participantId) ?? [];
+      const counts = {
+        session_record_count: participantRecords.filter(({ type }) => type === "session").length,
+        decision_request_count: participantRecords.filter(({ type }) => type === "decision_request").length,
+        analytics_event_count: participantRecords.filter(({ type }) => type === "analytics_event").length,
+        feedback_record_count: participantRecords.filter(({ type }) => type === "feedback_record").length,
+        cost_observation_count: participantRecords.filter(({ type }) => type === "cost_observation").length,
+      };
+      records.set(participantId, []);
+      return counts;
+    },
+    async countParticipantData(participantId) {
+      return (records.get(participantId) ?? []).length;
+    },
+  };
+  const session = await createBetaSession(config.invitations[0], config);
+  const response = await routeBetaAccessRequest(new Request("https://quietlens.test/api/beta-access/data", {
+    method: "DELETE",
+    headers: {
+      origin: "https://quietlens.test",
+      cookie: `ql_beta_session=${session.token}`,
+      "x-quietlens-beta-participant-id": "beta-participant-02",
+    },
+  }), { ...fixture.env, QUIETLENS_BETA_DATA_STORE: store });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("set-cookie"), /Max-Age=0/u);
+  assert.equal(body.data.deleted, true);
+  assert.equal(body.data.deleted_record_count, 5);
+  assert.equal(body.data.remaining_record_count, 0);
+  assert.equal(JSON.stringify(body).includes("participant"), false);
+  assert.equal(records.get("beta-participant-01").length, 0);
+  assert.equal(records.get("beta-participant-02").length, 3);
+  assert.equal(records.get("beta-participant-03").length, 3);
+
+  const retry = await routeBetaAccessRequest(new Request("https://quietlens.test/api/beta-access/data", {
+    method: "DELETE",
+    headers: { origin: "https://quietlens.test", cookie: `ql_beta_session=${session.token}` },
+  }), { ...fixture.env, QUIETLENS_BETA_DATA_STORE: store });
+  const retryBody = await retry.json();
+  assert.equal(retry.status, 200);
+  assert.equal(retryBody.data.deleted_record_count, 0);
+  assert.equal(retryBody.data.remaining_record_count, 0);
+});
+
+test("fails minimum-data deletion closed when the durable store is absent or leaves records behind", async () => {
+  const fixture = await betaFixture();
+  const config = parseBetaAccessConfig(fixture.env);
+  const session = await createBetaSession(config.invitations[0], config);
+  const request = () => new Request("https://quietlens.test/api/beta-access/data", {
+    method: "DELETE",
+    headers: { origin: "https://quietlens.test", cookie: `ql_beta_session=${session.token}` },
+  });
+
+  const crossOrigin = await routeBetaAccessRequest(new Request("https://quietlens.test/api/beta-access/data", {
+    method: "DELETE",
+    headers: { origin: "https://attacker.test", cookie: `ql_beta_session=${session.token}` },
+  }), fixture.env);
+  assert.equal(crossOrigin.status, 403);
+
+  const unauthenticated = await routeBetaAccessRequest(new Request("https://quietlens.test/api/beta-access/data", {
+    method: "DELETE",
+    headers: { origin: "https://quietlens.test" },
+  }), fixture.env);
+  assert.equal(unauthenticated.status, 401);
+
+  const missing = await routeBetaAccessRequest(request(), fixture.env);
+  assert.equal(missing.status, 503);
+  assert.deepEqual(await missing.json(), { error: { code: "BETA_DATA_STORE_NOT_CONFIGURED" } });
+  assert.equal(missing.headers.has("set-cookie"), false);
+
+  const incomplete = await routeBetaAccessRequest(request(), {
+    ...fixture.env,
+    QUIETLENS_BETA_DATA_STORE: {
+      async deleteParticipantData() {
+        return {
+          session_record_count: 1,
+          decision_request_count: 1,
+          analytics_event_count: 1,
+          feedback_record_count: 0,
+          cost_observation_count: 0,
+        };
+      },
+      async countParticipantData() { return 1; },
+    },
+  });
+  assert.equal(incomplete.status, 409);
+  assert.deepEqual(await incomplete.json(), { error: { code: "BETA_DATA_DELETION_INCOMPLETE" } });
+  assert.equal(incomplete.headers.has("set-cookie"), false);
 });

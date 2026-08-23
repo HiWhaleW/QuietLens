@@ -11,3 +11,9 @@ export function isLocalEvidenceReviewerAuthLocation(locationLike) {
   const params = new URLSearchParams(locationLike?.search ?? "");
   return params.get("workbench") === "evidence-review-auth";
 }
+
+export function isLocalBetaAnalyticsDashboardLocation(locationLike) {
+  if (!LOCAL_HOSTS.has(locationLike?.hostname)) return false;
+  const params = new URLSearchParams(locationLike?.search ?? "");
+  return params.get("workbench") === "beta-analytics";
+}

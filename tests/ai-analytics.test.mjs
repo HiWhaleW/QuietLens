@@ -102,6 +102,38 @@ test("rejects raw language and sensitive local data", () => {
   ));
 });
 
+test("rejects undeclared properties, invitation data, contacts, participant ids, and precise coordinates", async () => {
+  const cases = [
+    ["raw_alias", "想找一家安静且有插座的店"],
+    ["invite_code", "QUIETLENS-01-SYNTHETIC_token"],
+    ["contact_value", "13800138000"],
+    ["participant_id", "beta-participant-01"],
+    ["coordinates", "31.230416, 121.473701"],
+  ];
+
+  for (const [key, value] of cases) {
+    const event = makeEvent("correction_started");
+    event.properties[key] = value;
+    const result = validateAnalyticsEvent(event);
+    assert.equal(result.valid, false, `${key} must be rejected`);
+    assert.ok(result.issues.some((issue) => [
+      "EVENT_PROPERTY_UNDECLARED",
+      "EVENT_PRIVACY_VIOLATION",
+    ].includes(issue.code)));
+
+    let writeCount = 0;
+    const response = await routeAnalyticsRequest(new Request("https://quietlens.test/api/analytics", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://quietlens.test" },
+      body: JSON.stringify(event),
+    }), {
+      QUIETLENS_ANALYTICS_SINK: { write: async () => { writeCount += 1; } },
+    });
+    assert.equal(response.status, 400);
+    assert.equal(writeCount, 0);
+  }
+});
+
 test("rejects incomplete or internally inconsistent model usage observations", () => {
   const event = makeEvent("model_usage_observed");
   event.properties.model_call_count = 2;

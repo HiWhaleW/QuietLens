@@ -4,6 +4,7 @@ import {
   EVIDENCE_STORE_VERSION,
   EVENT_SCHEMA_VERSION,
 } from "../../src/ai-native/contracts/schemas.js";
+import { analyticsRetentionMetadata } from "../../src/ai-native/analytics/stage3AnalyticsDashboard.js";
 
 export function analyticsEvent({
   eventName,
@@ -36,10 +37,10 @@ export function analyticsEvent({
 
 export async function emitAnalyticsEvent(env, event) {
   const validated = assertAnalyticsEvent(event);
+  const retention = analyticsRetentionMetadata(validated.server_at);
   if (env.QUIETLENS_ANALYTICS_SINK?.write) {
-    await env.QUIETLENS_ANALYTICS_SINK.write(validated);
+    await env.QUIETLENS_ANALYTICS_SINK.write(validated, retention);
     return;
   }
-  console.log(JSON.stringify({ type: "quietlens_analytics", event: validated }));
+  console.log(JSON.stringify({ type: "quietlens_analytics", ...retention, event: validated }));
 }
-

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  isLocalBetaAnalyticsDashboardLocation,
   isLocalEvidenceReviewerAuthLocation,
   isLocalEvidenceReviewWorkbenchLocation,
 } from "../src/ai-native/evidence/reviewWorkbenchEntry.js";
@@ -63,6 +64,12 @@ test("opens the operator workbench only on an explicit localhost URL", () => {
   assert.equal(isLocalEvidenceReviewWorkbenchLocation({ hostname: "localhost", search: "?workbench=evidence-review" }), true);
   assert.equal(isLocalEvidenceReviewWorkbenchLocation({ hostname: "quietlens.example", search: "?workbench=evidence-review" }), false);
   assert.equal(isLocalEvidenceReviewWorkbenchLocation({ hostname: "127.0.0.1", search: "" }), false);
+});
+
+test("opens the Beta analytics dashboard only on an explicit localhost URL", () => {
+  assert.equal(isLocalBetaAnalyticsDashboardLocation({ hostname: "127.0.0.1", search: "?workbench=beta-analytics" }), true);
+  assert.equal(isLocalBetaAnalyticsDashboardLocation({ hostname: "localhost", search: "?workbench=beta-analytics" }), true);
+  assert.equal(isLocalBetaAnalyticsDashboardLocation({ hostname: "quietlens.example", search: "?workbench=beta-analytics" }), false);
 });
 
 test("opens reviewer Auth bootstrap only on its explicit localhost URL", () => {

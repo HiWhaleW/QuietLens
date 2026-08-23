@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="media/quietlens-product-preview.png" alt="QuietLens AI-native decision brief on a watercolor map of Shanghai" width="1200">
+  <img src="media/quietlens-product-preview.webp" alt="QuietLens desktop beta entry on a watercolor map of Shanghai" width="1200">
 </p>
 
 <h1 align="center">QuietLens</h1>
@@ -26,7 +26,10 @@
 </p>
 
 > [!NOTE]
-> QuietLens is an experimental desktop portfolio prototype. Its current evidence boundary is a controlled set of 10 cafés in Huangpu, Shanghai; it is not comprehensive coverage of Shanghai.
+> QuietLens is an invite-only desktop beta. The current release supports 20 independent invitations and a controlled set of 10 cafés in Huangpu, Shanghai. It is not comprehensive coverage of Shanghai.
+
+> [!WARNING]
+> Mobile is not supported yet. Viewports below 1180 px show a desktop-only notice instead of the decision flow.
 
 > [!IMPORTANT]
 > **Not medical advice and not a real-time availability service.** QuietLens does not diagnose sensory conditions or guarantee current seating, noise, crowd levels, opening hours, or accessibility. Verify time-sensitive details before travelling.
@@ -44,6 +47,15 @@ QuietLens turns a natural-language request into a bounded, inspectable place dec
 7. accepts a correction without forcing the user to restart.
 
 The product never exposes hidden chain-of-thought. Explanations are limited to concise, verifiable decision grounds.
+
+## Current release
+
+- Invite-only access for up to 20 independent beta participants
+- Desktop web experience for viewports 1180 px and wider
+- China-hosted application path on Volcengine veFaaS and Serverless API Gateway
+- 10 controlled Huangpu cafés with versioned evidence and watercolor media
+- Privacy-minimized server-side analytics with a localhost-only operator dashboard
+- No public registration, consumer account, payment, mobile experience, MySQL, TOS, or CDN yet
 
 ## The AI-native loop
 
@@ -137,7 +149,8 @@ npm run dev
 - deterministic request validation, hard-constraint filtering, evidence verification, and rendering
 - versioned Evidence source, snapshot, candidate, conflict, and human-review contracts
 - server-side model calls through a Responses API adapter
-- an optional, default-off Supabase Auth/Postgres reviewer boundary with MFA and append-only audit controls
+- an invite-gated Volcengine veFaaS application behind a Serverless API Gateway
+- a localhost-only operator dashboard; no public administrator route
 - versioned, privacy-minimized analytics that exclude raw requests, precise personal locations, and hidden reasoning
 - three discrete watercolor map boards: Shanghai overview, central city, and Huangpu detail
 - desktop-first interface with a restrained notice below 1180 px
@@ -150,8 +163,8 @@ src/ai-native/       contracts, retrieval, verification, state, and AI-native UI
 worker/              server-side decision routes, model adapters, and analytics
 supabase/             default-off reviewer authorization and audit-ledger migration
 scripts/              reproducible build, evidence, evaluation, and release checks
-public/assets/map/   original watercolor map boards
-public/assets/cafes/ original watercolor café scenes
+public/assets/map/    original watercolor map boards
+public/assets/cafes/  original watercolor café scenes
 tests/               contract, safety, evaluation, analytics, and hosting checks
 media/               public README assets
 ```

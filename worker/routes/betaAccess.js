@@ -7,6 +7,7 @@ import {
   parseBetaAccessConfig,
   redeemBetaInvite,
 } from "../beta/inviteAccess.js";
+import { deleteBetaParticipantData } from "../beta/participantData.js";
 import { jsonResponse, readJson, sameOriginAllowed } from "./http.js";
 
 const PREFIX = "/api/beta-access/";
@@ -71,6 +72,21 @@ export async function routeBetaAccessRequest(request, env) {
   if (pathname === `${PREFIX}session` && request.method === "DELETE") {
     if (!sameOriginAllowed(request)) return jsonResponse({ error: { code: "ORIGIN_NOT_ALLOWED" } }, 403);
     return responseWithCookie({ data: { authenticated: false } }, clearBetaSessionCookie());
+  }
+
+  if (pathname === `${PREFIX}data` && request.method === "DELETE") {
+    if (!sameOriginAllowed(request)) return jsonResponse({ error: { code: "ORIGIN_NOT_ALLOWED" } }, 403);
+    if (!isBetaAccessEnabled(env)) return jsonResponse({ error: { code: "API_NOT_FOUND" } }, 404);
+    const resolved = configOrResponse(env);
+    if (resolved.response) return resolved.response;
+    try {
+      const session = await authenticateBetaRequest(request, resolved.config);
+      const receipt = await deleteBetaParticipantData(env, session.participant_id);
+      return responseWithCookie({ data: receipt }, clearBetaSessionCookie());
+    } catch (error) {
+      if (error?.status) return jsonResponse({ error: { code: error.message } }, error.status);
+      return jsonResponse({ error: { code: "BETA_SESSION_REQUIRED" } }, 401);
+    }
   }
 
   return jsonResponse({ error: { code: "METHOD_NOT_ALLOWED" } }, 405);

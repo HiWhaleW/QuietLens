@@ -98,6 +98,14 @@ const FORBIDDEN_KEY_PARTS = [
   "email",
   "api_key",
   "secret",
+  "invite",
+  "participant",
+  "contact",
+  "address",
+  "latitude",
+  "longitude",
+  "coordinate",
+  "location",
 ];
 
 const SENSITIVE_VALUE_PATTERNS = [
@@ -105,6 +113,9 @@ const SENSITIVE_VALUE_PATTERNS = [
   /[A-Z]:\\/i,
   /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
   /(?:api[_-]?key|bearer)\s*[:= ]\s*\S+/i,
+  /\b1[3-9]\d{9}\b/u,
+  /\bQUIETLENS-[A-Za-z0-9_-]{8,}\b/u,
+  /(?:^|\s)-?\d{1,3}\.\d{4,}\s*[,，]\s*-?\d{1,3}\.\d{4,}(?:\s|$)/u,
 ];
 
 export function findPrivacyViolations(value, path = "$") {
@@ -150,6 +161,11 @@ export function validateAnalyticsEvent(event) {
     for (const property of requiredProperties) {
       if (!(property in (event.properties ?? {}))) {
         issues.push({ code: "EVENT_PROPERTY_MISSING", detail: property });
+      }
+    }
+    for (const property of Object.keys(event.properties ?? {})) {
+      if (!requiredProperties.includes(property)) {
+        issues.push({ code: "EVENT_PROPERTY_UNDECLARED", detail: property });
       }
     }
   }

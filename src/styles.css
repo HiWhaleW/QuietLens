@@ -576,7 +576,11 @@ input:focus-visible {
 
 .watercolor-map .leaflet-image-layer {
   image-rendering: auto;
-  transition: opacity 260ms ease;
+  transition: opacity 620ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .watercolor-map .leaflet-image-layer { transition: none; }
 }
 
 .theme-root[data-theme="dark"] .watercolor-map .leaflet-image-layer {

@@ -1,12 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import L from "leaflet";
-import { ArrowDownLeft, Coffee, Minus, Plus } from "lucide-react";
+import { Coffee, Minus, Plus } from "lucide-react";
 import {
   ImageOverlay,
   MapContainer,
   Marker,
-  Pane,
   useMap,
   useMapEvents,
 } from "react-leaflet";
@@ -19,8 +18,13 @@ const MAP_BOUNDS = [
 ];
 
 const CAFE_CENTER = [535, 830];
-const SCENE_CLOSE_MS = 480;
 const HUANGPU_LEVEL = 2;
+const BOARD_CENTER = [512, 768];
+// Keep the selected-cafe atlas cluster visible beside the wider editorial sheet.
+// The previous east-biased center only looked correct during the transition and
+// pushed two markers (plus the connector origin) off-screen at the final frame.
+const STORE_DETAIL_BOARD_CENTER = [512, 426];
+const VIEWPORT_TRANSITION_MS = 620;
 
 const MAP_BOARDS = [
   {
@@ -52,86 +56,16 @@ function toCentralPosition([lat, lng]) {
   return [((lat - 200) / 600) * 1024, ((lng - 350) / 900) * 1536];
 }
 
-function markerIcon(cafe) {
+function markerIcon(cafe, selected) {
   const markerLabel = cafe.markerLabel ?? cafe.matchScore ?? "";
   const roleClass = cafe.role ? ` is-${cafe.role}` : " is-context";
+  const placeId = encodeURIComponent(cafe.id);
   return L.divIcon({
     className: "quiet-marker-host",
-    html: `<span class="quiet-marker${roleClass}" aria-hidden="true"><span>${markerLabel}</span></span>`,
+    html: `<span class="quiet-marker${roleClass}${selected ? " is-selected" : ""}" data-place-id="${placeId}" aria-hidden="true"><span>${markerLabel}</span></span>`,
     iconSize: [46, 46],
     iconAnchor: [23, 23],
   });
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function sceneIcon(cafe, closing) {
-  const arrow = renderToStaticMarkup(<ArrowDownLeft size={34} strokeWidth={1.6} aria-hidden="true" />);
-  const sceneStatus = cafe.sceneStatus ?? (cafe.scene ? "ready" : "failed");
-  const sceneMedia = sceneStatus === "ready" && cafe.scene
-    ? `<img class="cafe-scene-illustration cafe-scene-full" src="${escapeHtml(cafe.scene)}" alt="" aria-hidden="true" decoding="sync" />`
-    : sceneStatus === "failed"
-      ? `<div class="cafe-scene-placeholder is-failed"><span>门店水彩图</span><strong>图片暂不可用</strong></div>`
-      : `<div class="cafe-scene-placeholder is-loading" aria-label="门店图片加载中"><span>门店水彩图</span><strong>正在准备清晰图片</strong></div>`;
-  const notice = cafe.notice
-    ? `<div class="scene-conflict-note is-${escapeHtml(cafe.notice.kind)}"><strong>${escapeHtml(cafe.notice.label)}</strong><span>${escapeHtml(cafe.notice.text)}</span><i aria-hidden="true">${arrow}</i></div>`
-    : "";
-
-  return L.divIcon({
-    className: "cafe-scene-host",
-    html: `<div class="cafe-scene ${closing ? "is-closing" : "is-opening"}"><div class="paper-break" aria-hidden="true"><span class="paper-seal"></span><span class="torn-paper torn-paper-top"></span><span class="torn-paper torn-paper-right"></span><span class="torn-paper torn-paper-bottom"></span><span class="torn-paper torn-paper-left"></span>${sceneMedia}</div>${notice}</div>`,
-    iconSize: [550, 340],
-    iconAnchor: [310, 312],
-  });
-}
-
-function SafeSceneMarker({ cafe, closing, drawerOpen }) {
-  const map = useMap();
-  const targetPosition = useMemo(() => projectCafeToHuangpu(cafe), [cafe]);
-  const [position, setPosition] = useState(targetPosition);
-
-  useEffect(() => {
-    function placeSceneInsideViewport() {
-      const mapSize = map.getSize();
-      const targetPoint = map.latLngToContainerPoint(targetPosition);
-      const drawerWidth = drawerOpen
-        ? document.querySelector(".details-drawer.is-open")?.getBoundingClientRect().width || 400
-        : 0;
-      const sceneAnchor = { x: 310, y: 312 };
-      const sceneSize = { x: 550, y: 340 };
-      const safeGap = 22;
-      const minX = sceneAnchor.x + safeGap;
-      const maxX = Math.max(minX, mapSize.x - drawerWidth - (sceneSize.x - sceneAnchor.x) - safeGap);
-      const minY = sceneAnchor.y + safeGap;
-      const maxY = Math.max(minY, mapSize.y - (sceneSize.y - sceneAnchor.y) - safeGap);
-      const safePoint = L.point(
-        Math.min(Math.max(targetPoint.x, minX), maxX),
-        Math.min(Math.max(targetPoint.y, minY), maxY),
-      );
-      setPosition(map.containerPointToLatLng(safePoint));
-    }
-
-    placeSceneInsideViewport();
-    map.on("resize", placeSceneInsideViewport);
-    return () => map.off("resize", placeSceneInsideViewport);
-  }, [drawerOpen, map, targetPosition]);
-
-  return (
-    <Marker
-      key={`${cafe.id}-${closing ? "closing" : "opening"}`}
-      position={position}
-      icon={sceneIcon(cafe, closing)}
-      interactive={false}
-      keyboard={false}
-    />
-  );
 }
 
 function overviewIcon(count) {
@@ -144,47 +78,111 @@ function overviewIcon(count) {
   });
 }
 
-function FixedBoardViewport() {
+function FixedBoardViewport({ boardLevel, railOpen, requestPanelOpen, resultPublished }) {
   const map = useMap();
+  const viewMode = requestPanelOpen
+    ? "request-panel"
+    : railOpen
+      ? "store-detail"
+      : resultPublished
+        ? "map-first"
+        : "base";
+  const previousViewMode = useRef(viewMode);
+  const hasMounted = useRef(false);
 
   useEffect(() => {
-    function lockViewport() {
+    const targetCenter = viewMode === "store-detail"
+        ? STORE_DETAIL_BOARD_CENTER
+        : BOARD_CENTER;
+    const targetBounds = MAP_BOUNDS;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const shouldAnimateViewChange = hasMounted.current
+      && previousViewMode.current !== viewMode
+      && !reducedMotion;
+    previousViewMode.current = viewMode;
+    hasMounted.current = true;
+
+    function getTargetZoom() {
       map.setMinZoom(-5);
       map.setMaxZoom(5);
-      const coverZoom = map.getBoundsZoom(MAP_BOUNDS, true);
-      map.setView([512, 768], coverZoom, { animate: false });
-      map.setMinZoom(coverZoom);
-      map.setMaxZoom(coverZoom);
-      map.setMaxBounds(MAP_BOUNDS);
+      return map.getBoundsZoom(MAP_BOUNDS, true);
     }
 
-    lockViewport();
-    map.on("resize", lockViewport);
-    return () => map.off("resize", lockViewport);
-  }, [map]);
+    function lockViewport(center = targetCenter, zoom = getTargetZoom()) {
+      map.setMinZoom(-5);
+      map.setMaxZoom(5);
+      map.setMaxBounds(targetBounds);
+      map.setView(center, zoom, { animate: false });
+      map.setMinZoom(zoom);
+      map.setMaxZoom(zoom);
+    }
+
+    let frame = 0;
+    let transitionActive = shouldAnimateViewChange;
+    function syncViewport() {
+      if (transitionActive) return;
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        map.invalidateSize({ animate: false, pan: false });
+        lockViewport();
+      });
+    }
+
+    if (shouldAnimateViewChange) {
+      const startCenter = map.getCenter();
+      const startZoom = map.getZoom();
+      const startedAt = window.performance.now();
+      const animateViewport = (now) => {
+        map.invalidateSize({ animate: false, pan: false });
+        const progress = Math.min(1, (now - startedAt) / VIEWPORT_TRANSITION_MS);
+        const eased = 1 - ((1 - progress) ** 3);
+        const targetZoom = getTargetZoom();
+        lockViewport([
+          startCenter.lat + ((targetCenter[0] - startCenter.lat) * eased),
+          startCenter.lng + ((targetCenter[1] - startCenter.lng) * eased),
+        ], startZoom + ((targetZoom - startZoom) * eased));
+        if (progress < 1) {
+          frame = window.requestAnimationFrame(animateViewport);
+          return;
+        }
+        transitionActive = false;
+        syncViewport();
+      };
+      frame = window.requestAnimationFrame(animateViewport);
+    } else {
+      syncViewport();
+    }
+
+    const observer = typeof ResizeObserver === "function"
+      ? new ResizeObserver(syncViewport)
+      : null;
+    observer?.observe(map.getContainer());
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, [boardLevel, map, viewMode]);
 
   return null;
 }
 
 function WatercolorBoards({ level }) {
-  const board = MAP_BOARDS[level];
-  return (
+  return MAP_BOARDS.map((board, boardLevel) => (
     <ImageOverlay
       key={board.id}
       url={board.image}
       bounds={MAP_BOUNDS}
-      className={`watercolor-board watercolor-board-${board.id} is-active`}
-      opacity={1}
-      zIndex={100 + level}
+      className={`watercolor-board watercolor-board-${board.id} ${boardLevel === level ? "is-active" : "is-inactive"}`}
+      opacity={boardLevel === level ? 1 : 0}
+      zIndex={100 + boardLevel}
       interactive={false}
     />
-  );
+  ));
 }
 
 function CafeMarkers({ cafes, selectedCafe, boardLevel, onBoardLevel, onSelect, onPrefetch }) {
   const overview = useMemo(() => overviewIcon(cafes.length), [cafes.length]);
 
-  if (selectedCafe) return null;
   if (cafes.length === 0) return null;
 
   if (boardLevel < HUANGPU_LEVEL) {
@@ -216,11 +214,11 @@ function CafeMarkers({ cafes, selectedCafe, boardLevel, onBoardLevel, onSelect, 
       <Marker
       key={`${cafe.id}-${cafe.matchScore}`}
       position={projectCafeToHuangpu(cafe)}
-      icon={markerIcon(cafe)}
+      icon={markerIcon(cafe, cafe.id === selectedCafe?.id)}
       bubblingMouseEvents={false}
       title={markerDescription}
       alt={markerDescription}
-      zIndexOffset={cafe.role ? 300 : 100}
+      zIndexOffset={cafe.id === selectedCafe?.id ? 900 : cafe.role ? 300 : 100}
       opacity={cafe.selectable === false ? 0.45 : 1}
       interactive={cafe.selectable !== false}
       eventHandlers={{
@@ -272,37 +270,8 @@ function BoardControls({ level, onChange }) {
   );
 }
 
-export function MapStage({ cafes, region, drawerOpen, selectedCafe, onSelect, onPrefetch, onClearSelection, onRegionChange }) {
-  const [sceneCafe, setSceneCafe] = useState(null);
-  const [sceneClosing, setSceneClosing] = useState(false);
+export function MapStage({ cafes, region, drawerOpen, requestPanelOpen, resultPublished, selectedCafe, onSelect, onPrefetch, onClearSelection, onRegionChange }) {
   const boardLevel = REGION_LEVELS[region] ?? 0;
-
-  useEffect(() => {
-    if (selectedCafe) {
-      setSceneCafe(selectedCafe);
-      setSceneClosing(false);
-      return undefined;
-    }
-
-    if (!sceneCafe || sceneClosing) return undefined;
-
-    setSceneClosing(true);
-    const closeDelay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : SCENE_CLOSE_MS;
-    const closeTimer = window.setTimeout(() => {
-      setSceneCafe(null);
-      setSceneClosing(false);
-    }, closeDelay);
-
-    return () => window.clearTimeout(closeTimer);
-  }, [selectedCafe]);
-
-  useEffect(() => {
-    if (boardLevel === HUANGPU_LEVEL) return;
-    setSceneCafe(null);
-    setSceneClosing(false);
-  }, [boardLevel]);
-
-  const sceneVisible = Boolean(selectedCafe || sceneCafe);
   const activeBoard = MAP_BOARDS[boardLevel];
 
   function changeBoardLevel(nextLevel, source) {
@@ -330,21 +299,20 @@ export function MapStage({ cafes, region, drawerOpen, selectedCafe, onSelect, on
         className="quiet-map watercolor-map"
       >
         <WatercolorBoards level={boardLevel} />
-        <FixedBoardViewport />
+        <FixedBoardViewport
+          boardLevel={boardLevel}
+          railOpen={drawerOpen}
+          requestPanelOpen={requestPanelOpen}
+          resultPublished={resultPublished}
+        />
         <ClearSelectionOnMapClick
           selectedCafe={selectedCafe}
           onClearSelection={onClearSelection}
         />
 
-        <Pane name="quietlens-scenes" style={{ zIndex: 450, pointerEvents: "none" }}>
-          {sceneCafe && (sceneCafe.scene || sceneCafe.notice) && (
-            <SafeSceneMarker cafe={sceneCafe} closing={sceneClosing} drawerOpen={drawerOpen} />
-          )}
-        </Pane>
-
         <CafeMarkers
           cafes={cafes}
-          selectedCafe={sceneVisible ? (selectedCafe || sceneCafe) : null}
+          selectedCafe={selectedCafe}
           boardLevel={boardLevel}
           onBoardLevel={changeBoardLevel}
           onSelect={onSelect}

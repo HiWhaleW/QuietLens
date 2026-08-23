@@ -52,4 +52,3 @@ export function createAnalyticsEmitter({ sessionId, getVersions }) {
     }
   };
 }
-
