@@ -507,6 +507,8 @@ test("publishes the versioned exploration layer with traceable evidence", () => 
   assert.ok(context.exploration.places.some((place) => place.evidence_ids.length > 0));
   assert.ok(context.evidence.length > 0);
   assert.ok(context.sources.length > 0);
+  assert.ok(context.places.every((place) => place.sources.length > 0));
+  assert.ok(context.places.flatMap((place) => place.sources).every((source) => /^https?:\/\//u.test(source.url)));
 });
 
 test("uses explicit AI intent and arrival context without mutating the recommendation brief", () => {

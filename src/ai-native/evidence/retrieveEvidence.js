@@ -45,7 +45,7 @@ function evidenceRank(record, requested, explicit) {
   return score;
 }
 
-function publicPlace(place) {
+function publicPlace(place, sourceById) {
   return {
     place_id: place.place_id,
     canonical_name: place.canonical_name,
@@ -54,6 +54,19 @@ function publicPlace(place) {
     asset: place.asset.status === "confirmed" && place.asset.path
       ? `/${place.asset.path.replace(/^public\//, "")}`
       : null,
+    ...(sourceById ? {
+      sources: place.source_ids.flatMap((sourceId) => {
+        const source = sourceById.get(sourceId);
+        const url = safePublicSourceUrl(source?.url);
+        return source && url ? [{
+          source_id: source.source_id,
+          source_type: source.source_type,
+          publisher: source.publisher,
+          title: source.title,
+          url,
+        }] : [];
+      }),
+    } : {}),
   };
 }
 
@@ -123,6 +136,7 @@ export function retrieveEvidence(request, store, { maxEvidencePerPlace = 8 } = {
 }
 
 export function buildPublicDecisionContext(brief, store, retrieval = null) {
+  const sourceById = new Map(store.sources.map((source) => [source.source_id, source]));
   const explorationPlaces = retrieval ? scoreExplorationPlaces(brief.request, retrieval, store) : [];
   const evidenceIds = new Set(brief.candidates.flatMap((candidate) => [
     ...candidate.fit_reasons.flatMap((reason) => reason.evidence_ids),
@@ -137,7 +151,7 @@ export function buildPublicDecisionContext(brief, store, retrieval = null) {
   );
 
   return {
-    places: store.places.map(publicPlace),
+    places: store.places.map((place) => publicPlace(place, sourceById)),
     exploration: {
       score_version: EXPLORATION_SCORE_VERSION,
       places: explorationPlaces,

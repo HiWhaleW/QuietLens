@@ -669,18 +669,60 @@ function editorialDisplayText(value) {
     .trim();
 }
 
-function StoreProfile({ placeId, arrivalAt, score }) {
+function compactRecommendationEvidence(candidate, presentation, profile) {
+  const candidateEvidence = candidate.fit_reasons.slice(0, 2).map((reason) => reason.text).join("；");
+  return String(presentation?.bubbleEvidence ?? candidateEvidence ?? profile?.evidence ?? "")
+    .replaceAll("自然光：已有较强自然光证据", "自然光证据较强")
+    .replaceAll("声环境：已有适合安静工作的观察", "适合安静工作")
+    .replaceAll("自然光：已有临窗采光观察", "有临窗采光")
+    .replaceAll("；", " · ")
+    .trim();
+}
+
+function compactRecommendationTradeoff(candidate, presentation) {
+  return String(presentation?.bubbleTradeoff ?? candidate.tradeoffs[0]?.text ?? "暂无额外取舍")
+    .replace(/^拥挤程度需权衡：/u, "")
+    .replaceAll("曾出现接近满座的观察", "可能接近满座")
+    .trim();
+}
+
+function StoreProfile({
+  placeId,
+  arrivalAt,
+  score,
+  candidate = null,
+  exploration = null,
+  request = null,
+  candidateCount = 0,
+}) {
   const profile = getSensoryReferenceProfile(placeId, arrivalAt);
   if (!profile) return null;
   const presentation = EDITORIAL_PLACE_PRESENTATIONS[placeId] ?? null;
   const displayScores = presentation?.displayScores ?? profile.display_scores;
   const compositeScore = presentation?.compositeScore ?? score ?? "待补充";
+  const nonRecommendedReason = exploration && request
+    ? nonRecommendationReason(exploration, request, candidateCount)
+    : null;
   return (
     <div className="ai-editorial-profile">
       <section className="ai-editorial-score" aria-label="本店综合参考与置信度">
         <div><strong>{compositeScore}</strong><span>综合参考</span></div>
         <div><span>置信度 {profile.confidence}%</span><i><b style={{ width: `${profile.confidence}%` }} /></i></div>
       </section>
+      {candidate && (
+        <section className="ai-editorial-recommendation-summary" aria-label="AI 本轮推荐摘要">
+          <strong>AI 本轮推荐 · {ROLE_LABELS[candidate.role]}</strong>
+          <p>{compactRecommendationEvidence(candidate, presentation, profile)}</p>
+          <p>权衡：{compactRecommendationTradeoff(candidate, presentation)}</p>
+        </section>
+      )}
+      {nonRecommendedReason && (
+        <section className="ai-editorial-recommendation-summary" aria-label="AI 本轮未推荐摘要">
+          <strong>AI 本轮未推荐</strong>
+          <p>{nonRecommendedReason}</p>
+          <p>登记资料可靠度 {profile.confidence}%</p>
+        </section>
+      )}
       <section className="ai-editorial-visit-time">
         <Clock3 aria-hidden="true" />
         <div><h3>适合时段</h3><p>{editorialDisplayText(profile.best_time)}</p></div>
@@ -711,10 +753,18 @@ function EditorialEvidence({ candidate, context, emit }) {
   const records = buildCandidateCitationView(candidate, context);
   const viewedEvidence = useRef(new Set());
   const presentation = EDITORIAL_PLACE_PRESENTATIONS[candidate.place_id] ?? null;
+  const placeSources = context?.places.find((place) => place.place_id === candidate.place_id)?.sources ?? [];
 
   if (records.length === 0) return null;
 
-  const sourceCount = new Set(records.flatMap((record) => record.sources.map((source) => source.source_id))).size;
+  const linkedSources = [...new Map(
+    [
+      ...placeSources,
+      ...records.flatMap((record) => record.sources),
+    ]
+      .filter((source) => source.url)
+      .map((source) => [source.source_id, source]),
+  ).values()];
   const verifiedDates = records.map((record) => record.verified_at).filter(Boolean).sort();
   const latestVerifiedAt = verifiedDates.at(-1) ?? "日期未登记";
   const reliabilityRank = { low: 0, medium: 1, high: 2 };
@@ -744,24 +794,16 @@ function EditorialEvidence({ candidate, context, emit }) {
   }
 
   return (
-    <details className="ai-editorial-evidence" onToggle={(event) => evidenceOpened(event.currentTarget.open)}>
+    <details className="ai-editorial-evidence is-link-only" onToggle={(event) => evidenceOpened(event.currentTarget.open)}>
       <summary>
         <span>{presentation?.evidenceLabel ?? `核实于 ${latestVerifiedAt} · ${RELIABILITY_LABELS[reliability]}`}</span>
-        <strong>查看 {presentation?.sourceCount ?? (sourceCount || records.length)} 条来源 <ExternalLink aria-hidden="true" /></strong>
+        <strong>查看 {linkedSources.length} 条来源 <ExternalLink aria-hidden="true" /></strong>
       </summary>
       <div className="ai-editorial-evidence-list">
-        {records.map((record) => (
-          <div key={record.evidence_id}>
-            <span>{ATTRIBUTE_LABELS[record.attribute] ?? record.attribute} · {record.kind_labels.join(" · ")}</span>
-            <p>{record.display_text}</p>
-            {record.sources.map((source) => source.url ? (
-              <a key={source.source_id} href={source.url} target="_blank" rel="noreferrer" onClick={() => sourceOpened(source)}>
-                <span>{source.publisher} · {source.title}</span><ExternalLink aria-hidden="true" />
-              </a>
-            ) : (
-              <small key={source.source_id}>{source.publisher} · {source.title}</small>
-            ))}
-          </div>
+        {linkedSources.map((source) => (
+          <a key={source.source_id} href={source.url} target="_blank" rel="noreferrer" onClick={() => sourceOpened(source)}>
+            <span>{source.publisher} · {source.title}</span><ExternalLink aria-hidden="true" />
+          </a>
         ))}
       </div>
     </details>
@@ -848,6 +890,7 @@ function EditorialDecisionBubble({ state }) {
   const presentation = EDITORIAL_PLACE_PRESENTATIONS[place.place_id] ?? null;
 
   if (candidate) {
+    if (brief.candidates.findIndex((item) => item.place_id === candidate.place_id) === 0) return null;
     const candidateEvidence = candidate.fit_reasons.slice(0, 2).map((reason) => reason.text).join("；");
     const evidence = presentation?.bubbleEvidence ?? (candidateEvidence || profile?.evidence || "已纳入本轮比较");
     const tradeoff = presentation?.bubbleTradeoff ?? candidate.tradeoffs[0]?.text ?? "暂无额外取舍";
@@ -892,13 +935,44 @@ function EditorialScene({ place }) {
   return <figure className="ai-editorial-scene"><img src={scene} alt={`${place.canonical_name}水彩场景`} /></figure>;
 }
 
-function EditorialSourceStatus({ placeId, arrivalAt }) {
+function EditorialSourceStatus({ placeId, arrivalAt, context, emit }) {
   const profile = getSensoryReferenceProfile(placeId, arrivalAt);
-  if (!profile) return null;
+  const placeSources = context?.places.find((place) => place.place_id === placeId)?.sources ?? [];
+  const sourceById = new Map((context?.sources ?? []).map((source) => [source.source_id, source]));
+  const linkedSources = [...new Map(
+    [
+      ...placeSources,
+      ...(context?.evidence ?? [])
+        .filter((record) => record.place_id === placeId)
+        .flatMap((record) => record.source_ids)
+        .map((sourceId) => sourceById.get(sourceId)),
+    ]
+      .filter((source) => source?.url)
+      .map((source) => [source.source_id, source]),
+  ).values()];
+  if (!profile || linkedSources.length === 0) return null;
+
+  function sourceOpened(source) {
+    emit("evidence_source_opened", "F5", {
+      place_id: placeId,
+      source_id: source.source_id,
+      source_type: source.source_type,
+    });
+  }
+
   return (
-    <details className="ai-editorial-evidence is-source-status">
-      <summary><span>登记资料 · 可靠度 {profile.confidence}%</span><strong>查看来源状态</strong></summary>
-      <p>{profile.source_status}</p>
+    <details className="ai-editorial-evidence is-link-only">
+      <summary>
+        <span>登记资料 · 可靠度 {profile.confidence}%</span>
+        <strong>查看 {linkedSources.length} 条来源 <ExternalLink aria-hidden="true" /></strong>
+      </summary>
+      <div className="ai-editorial-evidence-list">
+        {linkedSources.map((source) => (
+          <a key={source.source_id} href={source.url} target="_blank" rel="noreferrer" onClick={() => sourceOpened(source)}>
+            <span>{source.publisher} · {source.title}</span><ExternalLink aria-hidden="true" />
+          </a>
+        ))}
+      </div>
     </details>
   );
 }
@@ -1007,7 +1081,7 @@ function DecisionRail({ state, onClose, emit }) {
 
   if (candidate && place) {
     return (
-      <aside className="ai-decision-rail is-store-detail" aria-labelledby="place-detail-title">
+      <aside className="ai-decision-rail is-store-detail has-context-summary" aria-labelledby="place-detail-title">
         <button className="ai-rail-close" type="button" onClick={onClose} aria-label="关闭门店证据"><X aria-hidden="true" /></button>
         <div className="ai-editorial-heading">
           <span>{presentation?.roleLabel ?? recommendationRoleLabel(candidate.role)}</span>
@@ -1015,7 +1089,12 @@ function DecisionRail({ state, onClose, emit }) {
           <p>{place.address}</p>
         </div>
         <EditorialScene place={place} />
-        <StoreProfile placeId={place.place_id} arrivalAt={brief.request.time.arrival_at} score={exploration?.score} />
+        <StoreProfile
+          placeId={place.place_id}
+          arrivalAt={brief.request.time.arrival_at}
+          score={exploration?.score}
+          candidate={candidate}
+        />
         <EditorialEvidence candidate={candidate} context={context} emit={emit} />
       </aside>
     );
@@ -1023,7 +1102,7 @@ function DecisionRail({ state, onClose, emit }) {
 
   if (exploration && place) {
     return (
-      <aside className="ai-decision-rail is-store-detail is-not-recommended" aria-labelledby="place-detail-title">
+      <aside className="ai-decision-rail is-store-detail is-not-recommended has-context-summary" aria-labelledby="place-detail-title">
         <button className="ai-rail-close" type="button" onClick={onClose} aria-label="关闭门店证据"><X aria-hidden="true" /></button>
         <div className="ai-editorial-heading">
           <span>本轮未推荐</span>
@@ -1031,8 +1110,20 @@ function DecisionRail({ state, onClose, emit }) {
           <p>{place.address}</p>
         </div>
         <EditorialScene place={place} />
-        <StoreProfile placeId={place.place_id} arrivalAt={brief.request.time.arrival_at} score={exploration.score} />
-        <EditorialSourceStatus placeId={place.place_id} arrivalAt={brief.request.time.arrival_at} />
+        <StoreProfile
+          placeId={place.place_id}
+          arrivalAt={brief.request.time.arrival_at}
+          score={exploration.score}
+          exploration={exploration}
+          request={brief.request}
+          candidateCount={brief.candidates.length}
+        />
+        <EditorialSourceStatus
+          placeId={place.place_id}
+          arrivalAt={brief.request.time.arrival_at}
+          context={context}
+          emit={emit}
+        />
       </aside>
     );
   }
@@ -1410,7 +1501,6 @@ export function QuietLensDecisionApp() {
                   aria-hidden="true"
                 />
               )}
-              {showRail && <EditorialDecisionBubble state={state} />}
               {showRail && <DecisionRail state={state} onClose={() => clearPlace("close_button")} emit={emit} />}
             </div>
           </>

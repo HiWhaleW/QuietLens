@@ -1464,7 +1464,7 @@
   gap: 0;
   height: 33px;
   padding: 0 !important;
-  border-bottom: 0 !important;
+  border-bottom: 1px dashed color-mix(in srgb, var(--cobalt) 36%, transparent) !important;
 }
 
 .ai-decision-rail.is-store-detail .ai-editorial-visit-time h3 {
@@ -1600,6 +1600,10 @@
   font-size: 10px;
   line-height: 1.45;
   text-decoration: none;
+}
+
+.ai-editorial-evidence-list > a {
+  margin-top: 0;
 }
 
 .ai-editorial-evidence-list a svg {
@@ -1768,6 +1772,44 @@
   background: var(--cobalt);
 }
 
+.ai-editorial-recommendation-summary {
+  display: grid;
+  gap: 0;
+  margin-top: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--cobalt) 36%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.ai-editorial-recommendation-summary > strong {
+  display: flex;
+  height: min(42px, 3.97dvh);
+  align-items: center;
+  border-bottom: 0;
+  color: var(--cobalt);
+  font-size: clamp(13px, 1.418dvh, 15px);
+  font-weight: 600;
+  line-height: clamp(18px, 1.985dvh, 21px);
+}
+
+.ai-editorial-recommendation-summary > p {
+  display: flex;
+  height: min(42px, 3.97dvh);
+  align-items: center;
+  margin: 0;
+  border-bottom: 0;
+  color: var(--ink);
+  font-family: FangSong, STFangsong, "Songti SC", serif;
+  font-size: clamp(12px, 1.323dvh, 14px);
+  line-height: clamp(17px, 1.89dvh, 20px);
+}
+
+.ai-editorial-recommendation-summary > p:last-child {
+  border-bottom: 0;
+}
+
 .ai-decision-rail.is-store-detail .ai-editorial-visit-time {
   display: grid;
   grid-template-columns: min(28px, 2.647dvh) minmax(0, 1fr);
@@ -1777,6 +1819,13 @@
   margin-top: min(10px, 0.945dvh);
   padding: 0 0 min(9px, 0.851dvh) !important;
   border-bottom: 1px dashed color-mix(in srgb, var(--cobalt) 36%, transparent) !important;
+}
+
+.ai-decision-rail.is-store-detail .ai-editorial-visit-time > div {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: min(10px, 0.945dvh);
 }
 
 .ai-editorial-visit-time > svg {
@@ -1796,13 +1845,13 @@
 
 .ai-decision-rail.is-store-detail .ai-editorial-visit-time p {
   min-height: 0;
-  margin: 1px 0 0;
+  margin: 0;
   padding: 0;
   border-left: 0;
   font-size: clamp(11px, 1.323dvh, 14px);
   font-weight: 500;
   line-height: clamp(15px, 1.89dvh, 20px);
-  white-space: normal;
+  white-space: nowrap;
 }
 
 .ai-decision-rail.is-store-detail .ai-editorial-sensory {
@@ -1899,7 +1948,7 @@
 }
 
 .ai-decision-rail.is-store-detail.is-not-recommended .ai-editorial-heading {
-  width: 380px;
+  width: auto;
 }
 
 .ai-decision-rail.is-store-detail.is-not-recommended .ai-editorial-heading > h2 {
@@ -2926,4 +2975,32 @@
     line-height: 19px;
   }
   .ai-decision-rail { padding-inline: 24px; }
+}
+
+.ai-decision-rail.is-store-detail.has-context-summary .ai-editorial-evidence {
+  top: auto;
+  bottom: calc(4px - var(--ai-editorial-content-shift-y));
+}
+
+.ai-decision-rail.is-store-detail.has-context-summary .ai-editorial-field-note {
+  margin-top: 0 !important;
+  padding-top: 2px !important;
+}
+
+.ai-decision-rail.is-store-detail:has(.ai-editorial-evidence.is-link-only[open]) .ai-editorial-evidence.is-link-only[open] {
+  top: auto;
+  bottom: calc(4px - var(--ai-editorial-content-shift-y));
+  height: max-content;
+}
+
+@media (max-height: 820px) {
+  .ai-decision-rail.is-store-detail.has-context-summary .ai-editorial-profile {
+    transform: translateY(calc(-1 * var(--ai-editorial-content-shift-y) - 22px));
+  }
+}
+
+@media (min-height: 821px) {
+  .ai-decision-rail.is-store-detail.has-context-summary .ai-editorial-profile {
+    transform: translateY(calc(-1 * var(--ai-editorial-content-shift-y) - 30px));
+  }
 }
