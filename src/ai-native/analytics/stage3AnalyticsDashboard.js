@@ -8,6 +8,13 @@ const FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
 
 function unwrapEvent(record) {
   if (record?.type === "quietlens_analytics" && record.event) return record.event;
+  if (typeof record?.content === "string") {
+    try {
+      return unwrapEvent(JSON.parse(record.content));
+    } catch {
+      return record;
+    }
+  }
   return record;
 }
 

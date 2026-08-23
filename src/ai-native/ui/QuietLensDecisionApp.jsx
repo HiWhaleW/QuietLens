@@ -99,6 +99,13 @@ const PRIORITY_OPTIONS = [
   { value: "low", label: "低优先级" },
   { value: "remove", label: "删除这项偏好", destructive: true },
 ];
+const TASK_TYPE_OPTIONS = [
+  { value: "focus", label: "专注工作" },
+  { value: "recovery", label: "低刺激恢复" },
+  { value: "conversation", label: "见面交谈" },
+  { value: "call", label: "线上会议" },
+  { value: "other", label: "其他任务" },
+];
 const UNKNOWN_LABELS = {
   task: "任务类型",
   duration: "停留时长",
@@ -305,14 +312,187 @@ function Composer({ value, onChange, onSubmit, disabled, compact = false, onFocu
   );
 }
 
-function IntentPriorityMenu({ value, onChange }) {
+function padDateTimePart(value) {
+  return String(value).padStart(2, "0");
+}
+
+function dateTimeParts(value) {
+  const matched = String(value ?? "").match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (matched) {
+    return {
+      year: Number(matched[1]),
+      month: Number(matched[2]),
+      day: Number(matched[3]),
+      hour: Number(matched[4]),
+      minute: Number(matched[5]),
+    };
+  }
+  const now = new Date();
+  return {
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+    day: now.getDate(),
+    hour: now.getHours(),
+    minute: now.getMinutes(),
+  };
+}
+
+function toLocalDateTimeValue(parts) {
+  return `${parts.year}-${padDateTimePart(parts.month)}-${padDateTimePart(parts.day)}T${padDateTimePart(parts.hour)}:${padDateTimePart(parts.minute)}`;
+}
+
+function monthCalendarDays(year, month) {
+  const firstWeekday = new Date(year, month - 1, 1).getDay();
+  const firstCell = new Date(year, month - 1, 1 - firstWeekday);
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(firstCell);
+    date.setDate(firstCell.getDate() + index);
+    return {
+      year: date.getFullYear(),
+      month: date.getMonth() + 1,
+      day: date.getDate(),
+      currentMonth: date.getMonth() === month - 1,
+    };
+  });
+}
+
+function IntentDateTimeMenu({ value, onChange }) {
+  const selected = dateTimeParts(value);
+  const [open, setOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState({ year: selected.year, month: selected.month });
+  const rootRef = useRef(null);
+  const hourListRef = useRef(null);
+  const minuteListRef = useRef(null);
+  const days = monthCalendarDays(visibleMonth.year, visibleMonth.month);
+  const selectedDateKey = `${selected.year}-${selected.month}-${selected.day}`;
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function closeOnOutsidePress(event) {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener("pointerdown", closeOnOutsidePress);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePress);
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const hour = hourListRef.current?.children[selected.hour];
+      const minute = minuteListRef.current?.children[selected.minute];
+      if (hour && hourListRef.current) hourListRef.current.scrollTop = hour.offsetTop - ((hourListRef.current.clientHeight - hour.clientHeight) / 2);
+      if (minute && minuteListRef.current) minuteListRef.current.scrollTop = minute.offsetTop - ((minuteListRef.current.clientHeight - minute.clientHeight) / 2);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, selected.hour, selected.minute]);
+
+  function update(next) {
+    onChange(toLocalDateTimeValue({ ...selected, ...next }));
+  }
+
+  function moveMonth(delta) {
+    const next = new Date(visibleMonth.year, visibleMonth.month - 1 + delta, 1);
+    setVisibleMonth({ year: next.getFullYear(), month: next.getMonth() + 1 });
+  }
+
+  function chooseDay(day) {
+    update({ year: day.year, month: day.month, day: day.day });
+    if (!day.currentMonth) setVisibleMonth({ year: day.year, month: day.month });
+  }
+
+  function chooseToday() {
+    const now = new Date();
+    const today = { year: now.getFullYear(), month: now.getMonth() + 1, day: now.getDate() };
+    update(today);
+    setVisibleMonth({ year: today.year, month: today.month });
+  }
+
+  return (
+    <div className={`ai-intent-datetime ${open ? "is-open" : ""}`} ref={rootRef} onKeyDown={(event) => {
+      if (event.key === "Escape" && open) {
+        event.preventDefault();
+        setOpen(false);
+      }
+    }}>
+      <button
+        className="ai-intent-datetime-trigger"
+        type="button"
+        aria-label="到达时间"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls="intent-datetime-panel"
+        onClick={() => {
+          setVisibleMonth({ year: selected.year, month: selected.month });
+          setOpen((current) => !current);
+        }}
+      >
+        <Clock3 aria-hidden="true" />
+        <span>{value ? `${selected.year}/${padDateTimePart(selected.month)}/${padDateTimePart(selected.day)} ${padDateTimePart(selected.hour)}:${padDateTimePart(selected.minute)}` : "选择到达时间"}</span>
+        <ChevronDown aria-hidden="true" />
+      </button>
+      {open && (
+        <section className="ai-intent-datetime-panel" id="intent-datetime-panel" role="dialog" aria-label="选择到达时间">
+          <div className="ai-intent-calendar">
+            <header>
+              <strong>{visibleMonth.year}年{padDateTimePart(visibleMonth.month)}月</strong>
+              <span>
+                <button type="button" aria-label="上一个月" onClick={() => moveMonth(-1)}><ArrowLeft aria-hidden="true" /></button>
+                <button type="button" aria-label="下一个月" onClick={() => moveMonth(1)}><ArrowRight aria-hidden="true" /></button>
+              </span>
+            </header>
+            <div className="ai-intent-calendar-week" aria-hidden="true">
+              {["日", "一", "二", "三", "四", "五", "六"].map((label) => <span key={label}>{label}</span>)}
+            </div>
+            <div className="ai-intent-calendar-days">
+              {days.map((day) => {
+                const key = `${day.year}-${day.month}-${day.day}`;
+                return (
+                  <button
+                    className={`${day.currentMonth ? "" : "is-adjacent"} ${key === selectedDateKey ? "is-selected" : ""}`}
+                    type="button"
+                    aria-label={`${day.year}年${day.month}月${day.day}日`}
+                    aria-pressed={key === selectedDateKey}
+                    key={key}
+                    onClick={() => chooseDay(day)}
+                  >
+                    {day.day}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="ai-intent-time-columns" aria-label="选择时分">
+            <div><span>时</span><div ref={hourListRef} role="listbox" aria-label="小时">{Array.from({ length: 24 }, (_, hour) => <button className={hour === selected.hour ? "is-selected" : ""} type="button" role="option" aria-selected={hour === selected.hour} key={hour} onClick={() => update({ hour })}>{padDateTimePart(hour)}</button>)}</div></div>
+            <i aria-hidden="true">:</i>
+            <div><span>分</span><div ref={minuteListRef} role="listbox" aria-label="分钟">{Array.from({ length: 60 }, (_, minute) => <button className={minute === selected.minute ? "is-selected" : ""} type="button" role="option" aria-selected={minute === selected.minute} key={minute} onClick={() => update({ minute })}>{padDateTimePart(minute)}</button>)}</div></div>
+          </div>
+          <footer>
+            <button type="button" onClick={() => { onChange(""); setOpen(false); }}>清除</button>
+            <button type="button" onClick={chooseToday}>今天</button>
+            <button type="button" onClick={() => setOpen(false)}>完成</button>
+          </footer>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function IntentPriorityMenu({
+  value,
+  onChange,
+  options = PRIORITY_OPTIONS,
+  ariaLabel = "偏好优先级",
+  menuLabel = "选择偏好优先级",
+  menuId = "intent-priority-options",
+  inline = false,
+}) {
   const [open, setOpen] = useState(false);
   const [activeValue, setActiveValue] = useState(value);
   const [opensUpward, setOpensUpward] = useState(false);
   const rootRef = useRef(null);
   const triggerRef = useRef(null);
   const menuRef = useRef(null);
-  const selectedOption = PRIORITY_OPTIONS.find((option) => option.value === value) ?? PRIORITY_OPTIONS[0];
+  const selectedOption = options.find((option) => option.value === value) ?? options[0];
 
   useEffect(() => {
     if (!open) return undefined;
@@ -364,19 +544,19 @@ function IntentPriorityMenu({ value, onChange }) {
   }
 
   function handleKeyDown(event) {
-    const currentIndex = Math.max(0, PRIORITY_OPTIONS.findIndex((option) => option.value === activeValue));
+    const currentIndex = Math.max(0, options.findIndex((option) => option.value === activeValue));
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const direction = event.key === "ArrowDown" ? 1 : -1;
-      const nextIndex = (currentIndex + direction + PRIORITY_OPTIONS.length) % PRIORITY_OPTIONS.length;
+      const nextIndex = (currentIndex + direction + options.length) % options.length;
       setOpen(true);
-      setActiveValue(PRIORITY_OPTIONS[nextIndex].value);
+      setActiveValue(options[nextIndex].value);
       return;
     }
     if (event.key === "Home" || event.key === "End") {
       event.preventDefault();
       setOpen(true);
-      setActiveValue(PRIORITY_OPTIONS[event.key === "Home" ? 0 : PRIORITY_OPTIONS.length - 1].value);
+      setActiveValue(options[event.key === "Home" ? 0 : options.length - 1].value);
       return;
     }
     if ((event.key === "Enter" || event.key === " ") && open) {
@@ -393,15 +573,15 @@ function IntentPriorityMenu({ value, onChange }) {
   }
 
   return (
-    <div className={`ai-intent-priority-select ${open ? "is-open" : ""} ${opensUpward ? "opens-upward" : ""}`} ref={rootRef} onKeyDown={handleKeyDown}>
+    <div className={`ai-intent-priority-select ${inline ? "is-inline" : ""} ${open ? "is-open" : ""} ${opensUpward ? "opens-upward" : ""}`} ref={rootRef} onKeyDown={handleKeyDown}>
       <button
         ref={triggerRef}
         className="ai-intent-priority-trigger"
         type="button"
-        aria-label="偏好优先级"
+        aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-controls="intent-priority-options"
+        aria-controls={menuId}
         onClick={() => {
           setActiveValue(value);
           setOpen((current) => !current);
@@ -411,8 +591,8 @@ function IntentPriorityMenu({ value, onChange }) {
         <ChevronDown aria-hidden="true" />
       </button>
       {open && (
-        <div ref={menuRef} className="ai-intent-priority-options" id="intent-priority-options" role="listbox" aria-label="选择偏好优先级">
-          {PRIORITY_OPTIONS.map((option) => (
+        <div ref={menuRef} className="ai-intent-priority-options" id={menuId} role="listbox" aria-label={menuLabel}>
+          {options.map((option) => (
             <button
               className={`${activeValue === option.value ? "is-active" : ""} ${option.destructive ? "is-destructive" : ""}`}
               type="button"
@@ -454,8 +634,8 @@ function IntentEditor({ row, request, onSave, onCancel }) {
 
   return (
     <form className="ai-intent-editor" onSubmit={submit}>
-      {row.kind === "task" && <><select value={taskType} onChange={(event) => setTaskType(event.target.value)} aria-label="任务类型"><option value="focus">专注工作</option><option value="recovery">低刺激恢复</option><option value="conversation">见面交谈</option><option value="call">线上会议</option><option value="other">其他任务</option></select><input type="number" min="1" max="480" value={duration} onChange={(event) => setDuration(event.target.value)} placeholder="分钟" aria-label="停留分钟数" /></>}
-      {row.kind === "time" && <input type="datetime-local" value={arrival} onChange={(event) => setArrival(event.target.value)} aria-label="到达时间" />}
+      {row.kind === "task" && <><IntentPriorityMenu value={taskType} onChange={setTaskType} options={TASK_TYPE_OPTIONS} ariaLabel="任务类型" menuLabel="选择任务类型" menuId="intent-task-type-options" inline /><input type="number" min="1" max="480" value={duration} onChange={(event) => setDuration(event.target.value)} placeholder="分钟" aria-label="停留分钟数" /></>}
+      {row.kind === "time" && <IntentDateTimeMenu value={arrival} onChange={setArrival} />}
       {row.kind === "location" && <input value={area} onChange={(event) => setArea(event.target.value)} maxLength="40" aria-label="地点" />}
       {row.kind === "walk" && <input type="number" min="1" max="90" value={walk} onChange={(event) => setWalk(event.target.value)} placeholder="不限制" aria-label="最多步行分钟数" />}
       {row.kind === "preference" && <IntentPriorityMenu value={priority} onChange={setPriority} />}
@@ -478,13 +658,23 @@ function requestRowIcon(row) {
   return Armchair;
 }
 
-function IntentSummary({ request, originalText, changes, onEdit, disabled, onEditStarted }) {
+function IntentSummary({ request, originalText, changes, onEdit, disabled, onEditStarted, onClose }) {
   const [editingKey, setEditingKey] = useState(null);
   const rows = requestRows(request);
   return (
     <section className="ai-intent" aria-labelledby="intent-title">
       <div className="ai-section-title">
         <h2 id="intent-title"><Sparkles aria-hidden="true" />AI 理解的本次需求</h2>
+        {onClose && (
+          <button
+            className="ai-request-panel-close"
+            type="button"
+            aria-label="关闭本次需求"
+            onClick={onClose}
+          >
+            <X aria-hidden="true" />
+          </button>
+        )}
       </div>
       <section className="ai-original-request is-indexed">
         <span>你说的是</span>
@@ -1239,6 +1429,7 @@ export function QuietLensDecisionApp() {
     try {
       const result = await recommendDecision({ session_id: sessionId, request });
       dispatch({ type: "DECIDED", payload: result });
+      if (result.brief.status === "published") setMapRegion("huangpu");
     } catch (error) {
       dispatch({ type: "FAILED", errorCode: error.code });
     }
@@ -1247,7 +1438,7 @@ export function QuietLensDecisionApp() {
   async function submitInitial(event) {
     event.preventDefault();
     if (!input.trim()) return;
-    setMapRegion("huangpu");
+    setMapRegion("shanghai");
     dispatch({ type: "PARSE_STARTED" });
     emit("decision_request_submitted", "F0", { input_length_bucket: inputLengthBucket(input.trim()), entry_context: "primary_composer" });
     try {
@@ -1301,6 +1492,7 @@ export function QuietLensDecisionApp() {
     event.preventDefault();
     if (!correction.trim() || !state.request) return;
     const beforeIds = state.brief?.candidates.map((candidate) => candidate.place_id).join(",") ?? "";
+    setMapRegion("huangpu");
     dispatch({ type: "CORRECTION_STARTED" });
     emit("correction_submitted", "F6", { changed_field_count: 0 });
     try {
@@ -1312,6 +1504,7 @@ export function QuietLensDecisionApp() {
         clarification_already_asked: true,
       });
       dispatch({ type: "CORRECTED", payload: result });
+      if (result.brief?.status === "published") setMapRegion("huangpu");
       setCorrection("");
       const afterIds = result.brief?.candidates.map((candidate) => candidate.place_id).join(",") ?? "";
       emit("correction_result_viewed", "F6", { changed_field_count: result.changes.length, candidate_changed: beforeIds !== afterIds });
@@ -1323,11 +1516,30 @@ export function QuietLensDecisionApp() {
   async function editIntentField(row, edit) {
     if (!state.request) return;
     const result = applyManualFieldEdit(state.request, edit);
+    setMapRegion("huangpu");
     dispatch({ type: "MANUAL_EDIT_APPLIED", request: result.request, changedFields: result.changedFields });
     for (const fieldName of result.changedFields) {
       emit("intent_field_updated", "F1", { field_name: fieldName, change_type: edit.action === "remove" || edit.priority === null ? "removed" : "set" });
     }
     await runRecommendation(result.request);
+  }
+
+  function openRequestPanel() {
+    if (state.selectedPlaceId) clearPlace("request_panel");
+    const requestPanel = document.getElementById("quietlens-request-panel");
+    if (requestPanel) requestPanel.scrollTop = 0;
+    setRequestPanelOpen(true);
+    setMapRegion("shanghai");
+  }
+
+  function closeRequestPanel() {
+    setRequestPanelOpen(false);
+    setMapRegion("huangpu");
+  }
+
+  function toggleRequestPanel() {
+    if (requestPanelOpen) closeRequestPanel();
+    else openRequestPanel();
   }
 
   function selectPlace(placeId, source) {
@@ -1457,7 +1669,7 @@ export function QuietLensDecisionApp() {
               >
                 {!state.request && <section className="ai-original-request"><span>你说的是</span><p>“{input || correction || "已保留本次需求"}”</p></section>}
                 {state.stage === "F1" && !state.request && <ProcessStatus stage="F1" />}
-                {state.request && <IntentSummary request={state.request} originalText={input || correction} changes={state.changes} disabled={busy} onEdit={editIntentField} onEditStarted={(row) => emit("intent_field_edit_started", "F1", { field_name: row.kind, previous_state: row.value === "尚未指定" ? "empty" : "set" })} />}
+                {state.request && <IntentSummary request={state.request} originalText={input || correction} changes={state.changes} disabled={busy} onEdit={editIntentField} onEditStarted={(row) => emit("intent_field_edit_started", "F1", { field_name: row.kind, previous_state: row.value === "尚未指定" ? "empty" : "set" })} onClose={hasPublishedBrief && requestPanelOpen ? closeRequestPanel : null} />}
                 {state.stage === "F2" && state.clarification && <Clarification clarification={state.clarification} onAnswer={answerClarification} onTextAnswer={answerClarificationText} disabled={busy} />}
                 {state.stage === "F3" && <ProcessStatus stage="F3" />}
                 {state.stage === "F6" && <ProcessStatus stage="F6" />}
@@ -1465,14 +1677,14 @@ export function QuietLensDecisionApp() {
                 {state.stage === "F7" && <FailureState state={state} onRetry={() => state.request ? runRecommendation(state.request) : reset()} onReset={reset} />}
                 {state.brief?.status === "published" && <div className="ai-correction"><div className="ai-correction-heading"><strong>继续修改本次条件</strong><button type="button" onClick={reset}><RotateCcw aria-hidden="true" />开始新问题</button></div><p>这里会保留上面的任务、时间和硬条件。</p><Composer value={correction} onChange={setCorrection} onSubmit={submitCorrection} disabled={busy} compact onFocus={() => emit("correction_started", "F6", {})} /></div>}
               </aside>
-              {hasPublishedBrief && (
+              {hasPublishedBrief && !requestPanelOpen && (
                 <button
                   className={`ai-request-drawer-toggle ${requestPanelOpen ? "is-open" : ""}`}
                   type="button"
                   aria-expanded={requestPanelOpen}
                   aria-controls="quietlens-request-panel"
                   aria-label={requestPanelOpen ? "收起本次需求" : "展开本次需求"}
-                  onClick={() => setRequestPanelOpen((open) => !open)}
+                  onClick={toggleRequestPanel}
                 >
                   <MessageSquareText aria-hidden="true" />
                   <span>本次需求</span>

@@ -24,12 +24,7 @@ const BOARD_CENTER = [512, 768];
 // The previous east-biased center only looked correct during the transition and
 // pushed two markers (plus the connector origin) off-screen at the final frame.
 const STORE_DETAIL_BOARD_CENTER = [512, 426];
-const RAIL_BOARD_CENTER = [512, 160];
 const VIEWPORT_TRANSITION_MS = 620;
-const RAIL_MAP_BOUNDS = [
-  [0, -700],
-  [1024, 1536],
-];
 
 const MAP_BOARDS = [
   {
@@ -96,12 +91,10 @@ function FixedBoardViewport({ boardLevel, railOpen, requestPanelOpen, resultPubl
   const hasMounted = useRef(false);
 
   useEffect(() => {
-    const targetCenter = viewMode === "request-panel"
-      ? RAIL_BOARD_CENTER
-      : viewMode === "store-detail"
+    const targetCenter = viewMode === "store-detail"
         ? STORE_DETAIL_BOARD_CENTER
         : BOARD_CENTER;
-    const targetBounds = viewMode === "request-panel" ? RAIL_MAP_BOUNDS : MAP_BOUNDS;
+    const targetBounds = MAP_BOUNDS;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const shouldAnimateViewChange = hasMounted.current
       && previousViewMode.current !== viewMode
@@ -174,18 +167,17 @@ function FixedBoardViewport({ boardLevel, railOpen, requestPanelOpen, resultPubl
 }
 
 function WatercolorBoards({ level }) {
-  const board = MAP_BOARDS[level];
-  return (
+  return MAP_BOARDS.map((board, boardLevel) => (
     <ImageOverlay
       key={board.id}
       url={board.image}
       bounds={MAP_BOUNDS}
-      className={`watercolor-board watercolor-board-${board.id} is-active`}
-      opacity={1}
-      zIndex={100 + level}
+      className={`watercolor-board watercolor-board-${board.id} ${boardLevel === level ? "is-active" : "is-inactive"}`}
+      opacity={boardLevel === level ? 1 : 0}
+      zIndex={100 + boardLevel}
       interactive={false}
     />
-  );
+  ));
 }
 
 function CafeMarkers({ cafes, selectedCafe, boardLevel, onBoardLevel, onSelect, onPrefetch }) {

@@ -11,9 +11,10 @@ import {
   Users,
 } from "lucide-react";
 
-import { buildStage3AnalyticsDashboardFromExport } from "../analytics/stage3AnalyticsDashboard.js";
+import { buildStage3AnalyticsDashboardFromExports } from "../analytics/stage3AnalyticsDashboard.js";
 
 const MAX_EXPORT_BYTES = 5 * 1024 * 1024;
+const MAX_EXPORT_FILES = 20;
 
 function percent(value) {
   return `${Math.round(value * 100)}%`;
@@ -63,18 +64,24 @@ export function BetaAnalyticsDashboardApp() {
       + dashboard.ignored.duplicate_record_count
     : 0, [dashboard]);
 
-  async function importExport(event) {
-    const file = event.target.files?.[0];
+  async function importExports(event) {
+    const files = [...(event.target.files ?? [])];
     event.target.value = "";
-    if (!file) return;
-    if (file.size > MAX_EXPORT_BYTES) {
-      setError("文件超过 5MB。请先按 30 天窗口导出。");
+    if (!files.length) return;
+    if (files.length > MAX_EXPORT_FILES) {
+      setError("一次最多导入 20 个文件。");
+      return;
+    }
+    if (files.some((file) => file.size > MAX_EXPORT_BYTES)) {
+      setError("单个文件不能超过 5MB。");
       return;
     }
     try {
-      const next = buildStage3AnalyticsDashboardFromExport(await file.text());
+      const next = buildStage3AnalyticsDashboardFromExports(
+        await Promise.all(files.map((file) => file.text())),
+      );
       setDashboard(next);
-      setFilename(file.name);
+      setFilename(files.length === 1 ? files[0].name : `${files.length} 个日志文件`);
       setError(null);
     } catch {
       setError("无法读取该日志导出。请使用 JSON、JSONL 或 NDJSON。");
@@ -98,15 +105,15 @@ export function BetaAnalyticsDashboardApp() {
 
         <div className="analytics-scroll">
           <section className="analytics-hero">
-            <div><span>Stage 3 · S3-T05</span><h1>公开 Beta 数据看板</h1><p>查看约 20 人邀请码灰度的聚合趋势。只接受国内日志服务导出的隐私安全事件，固定统计最近 30 天。</p></div>
-            <aside><CalendarClock aria-hidden="true" /><strong>30 天保留合同</strong><span>不展示邀请码、参与者、原始请求、联系方式或精确位置。</span></aside>
+            <div><span>Stage 3 · S3-T05</span><h1>公开 Beta 数据看板</h1><p>查看邀请码灰度的聚合趋势。只接受服务端输出的隐私最小化事件，并统计最近 30 天。</p></div>
+            <aside><CalendarClock aria-hidden="true" /><strong>30 天统计窗口</strong><span>当前云端自动保留尚未启用。看板不展示邀请码、参与者、原始请求、联系方式或精确位置。</span></aside>
           </section>
 
           <section className="analytics-import-panel">
-            <div><FileUp aria-hidden="true" /><span><strong>{filename || "导入日志导出"}</strong><small>支持 JSON、JSONL、NDJSON；最大 5MB；仅在当前页面内存中处理。</small></span></div>
+            <div><FileUp aria-hidden="true" /><span><strong>{filename || "导入服务端日志"}</strong><small>支持 JSON、JSONL、NDJSON；最多 20 个文件，每个 5MB；仅在当前页面内存中处理。</small></span></div>
             <div>
               {dashboard && <button type="button" className="is-secondary" onClick={reset}><RotateCcw aria-hidden="true" />清空</button>}
-              <label><FileUp aria-hidden="true" />选择文件<input type="file" accept=".json,.jsonl,.ndjson,.log,application/json" onChange={importExport} /></label>
+              <label><FileUp aria-hidden="true" />选择文件<input type="file" multiple accept=".json,.jsonl,.ndjson,.log,application/json" onChange={importExports} /></label>
             </div>
           </section>
 
@@ -134,7 +141,7 @@ export function BetaAnalyticsDashboardApp() {
               </article>
             </section>
             <p className="analytics-footnote"><ShieldCheck aria-hidden="true" />有效事件 {dashboard.metrics.event_count} 条；忽略 {ignoredCount} 条无效、重复或超期记录。看板不会显示任何会话或请求 ID。</p>
-          </> : <section className="analytics-empty"><BarChart3 aria-hidden="true" /><strong>等待导入最近 30 天日志</strong><span>云端日志服务尚未开通。本地看板已就绪，但不会伪造生产数据。</span></section>}
+          </> : <section className="analytics-empty"><BarChart3 aria-hidden="true" /><strong>等待导入服务端日志</strong><span>当前云端日志投递未启用。本机看板已就绪，但不会伪造 30 天留存或生产数据。</span></section>}
         </div>
       </main>
     </div>

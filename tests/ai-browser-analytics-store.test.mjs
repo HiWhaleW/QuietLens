@@ -8,9 +8,7 @@ import {
   buildBrowserAnalyticsDownload,
   clearBrowserAnalyticsEvents,
   readBrowserAnalyticsEvents,
-  serializeBrowserAnalyticsExport,
 } from "../src/ai-native/analytics/browserAnalyticsStore.js";
-import { createAnalyticsEmitter } from "../src/ai-native/analytics/emitter.js";
 import { buildStage3AnalyticsDashboardFromExport } from "../src/ai-native/analytics/stage3AnalyticsDashboard.js";
 
 class MemoryStorage {
@@ -71,7 +69,7 @@ test("keeps valid browser analytics locally for 30 days and exports dashboard-co
   assert.equal(dashboard.metrics.brief_view_count, 1);
 });
 
-test("builds a privacy-safe download descriptor for the future frontend hook", () => {
+test("keeps the rejected browser-export prototype reproducible as archived evidence", () => {
   const storage = new MemoryStorage();
   appendBrowserAnalyticsEvent(submitted("2026-08-20T12:00:00.000Z"), {
     storage,
@@ -222,27 +220,4 @@ test("keeps newer records when an older event arrives out of order", () => {
   const records = readBrowserAnalyticsEvents({ storage, now: "2026-08-20T12:01:00.000Z" });
   assert.equal(records.some((record) => record.event.request_id === "req-older-late"), false);
   assert.equal(records.at(-1).event.request_id, "req-newer-011");
-});
-
-test("the existing emitter stores locally even when network analytics fails", async () => {
-  const storage = new MemoryStorage();
-  const originalStorage = globalThis.localStorage;
-  const originalFetch = globalThis.fetch;
-  globalThis.localStorage = storage;
-  globalThis.fetch = async () => { throw new Error("synthetic-network-failure"); };
-  try {
-    const emit = createAnalyticsEmitter({
-      sessionId: "sess-browser-emitter",
-      getVersions: () => ({ request_id: "req-browser-emitter", model: "not-invoked", prompt: "not-invoked" }),
-    });
-    await emit("decision_request_submitted", "F0", {
-      input_length_bucket: "short",
-      entry_context: "primary_composer",
-    });
-    const serialized = serializeBrowserAnalyticsExport({ storage, now: new Date(Date.now() + 1000).toISOString() });
-    assert.equal(JSON.parse(serialized).events.length, 1);
-  } finally {
-    globalThis.localStorage = originalStorage;
-    globalThis.fetch = originalFetch;
-  }
 });

@@ -2463,6 +2463,7 @@
   padding: 170px 30px 34px 54px;
   border-right: 0;
   background: transparent;
+  overscroll-behavior-y: none;
   transition:
     opacity 240ms ease,
     transform 460ms cubic-bezier(0.22, 1, 0.36, 1);
@@ -2495,7 +2496,34 @@
 }
 
 .ai-shell:not(.is-f0) .ai-workspace.has-published-brief.is-request-panel-open .ai-sidebar {
+  padding-top: 34px;
   padding-bottom: 84px;
+}
+
+.ai-request-panel-close {
+  display: grid;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: color-mix(in srgb, var(--cobalt) 72%, var(--ink));
+  background: transparent;
+  cursor: pointer;
+}
+
+.ai-request-panel-close:hover,
+.ai-request-panel-close:focus-visible {
+  color: var(--cobalt);
+  background: transparent;
+}
+
+.ai-request-panel-close svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.6;
 }
 
 .ai-request-drawer-toggle {
@@ -2619,7 +2647,10 @@
 }
 
 .ai-shell:not(.is-f0) .ai-section-title {
+  display: flex;
   min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
   margin: 0 0 10px -12px;
 }
 
@@ -2749,11 +2780,244 @@
   background: transparent;
 }
 
+.ai-shell:not(.is-f0) .ai-intent-editor > .ai-intent-datetime {
+  position: relative;
+  z-index: 10;
+  display: block;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-datetime-trigger {
+  display: grid;
+  width: 100%;
+  min-height: 38px;
+  grid-template-columns: 20px minmax(0, 1fr) 17px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 3px 6px 8px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--cobalt) 44%, transparent);
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-datetime-trigger:focus-visible,
+.ai-shell:not(.is-f0) .ai-intent-datetime.is-open .ai-intent-datetime-trigger {
+  border-bottom-color: var(--cobalt);
+}
+
+.ai-shell:not(.is-f0) .ai-intent-datetime-trigger svg:first-child {
+  width: 18px;
+  height: 18px;
+  color: var(--cobalt);
+  stroke-width: 1.6;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-datetime-trigger svg:last-child {
+  width: 17px;
+  height: 17px;
+  color: var(--cobalt);
+  stroke-width: 1.6;
+  transition: transform 160ms ease;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-datetime.is-open .ai-intent-datetime-trigger svg:last-child {
+  transform: rotate(180deg);
+}
+
+.ai-shell:not(.is-f0) .ai-intent-datetime-panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 5px);
+  left: 0;
+  display: grid;
+  width: min(360px, 100%);
+  grid-template-areas:
+    "calendar time"
+    "footer footer";
+  grid-template-columns: minmax(0, 1fr) 118px;
+  gap: 10px 12px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--cobalt) 42%, transparent);
+  border-radius: 5px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--paper) 92%, var(--soft-blue));
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--cobalt) 13%, transparent);
+}
+
+.ai-shell:not(.is-f0) .ai-intent-datetime-panel button {
+  border: 0;
+  border-radius: 2px;
+  color: var(--ink);
+  background: transparent;
+  box-shadow: none;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-calendar {
+  min-width: 0;
+  grid-area: calendar;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-calendar > header {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-calendar > header strong {
+  color: var(--cobalt-dark);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-calendar > header span {
+  display: flex;
+  gap: 3px;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-calendar > header button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-calendar > header button:hover,
+.ai-shell:not(.is-f0) .ai-intent-calendar > header button:focus-visible {
+  color: var(--cobalt);
+  background: color-mix(in srgb, var(--soft-blue) 72%, transparent);
+}
+
+.ai-shell:not(.is-f0) .ai-intent-calendar > header svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.6;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-calendar-week,
+.ai-shell:not(.is-f0) .ai-intent-calendar-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.ai-shell:not(.is-f0) .ai-intent-calendar-week span {
+  display: grid;
+  height: 24px;
+  place-items: center;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-calendar-days {
+  gap: 2px;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-calendar-days button {
+  min-width: 0;
+  min-height: 30px;
+  padding: 0;
+  font-size: 11px;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-calendar-days button.is-adjacent {
+  color: color-mix(in srgb, var(--muted) 44%, transparent);
+}
+
+.ai-shell:not(.is-f0) .ai-intent-calendar-days button:hover,
+.ai-shell:not(.is-f0) .ai-intent-calendar-days button:focus-visible,
+.ai-shell:not(.is-f0) .ai-intent-calendar-days button.is-selected,
+.ai-shell:not(.is-f0) .ai-intent-time-columns button:hover,
+.ai-shell:not(.is-f0) .ai-intent-time-columns button:focus-visible,
+.ai-shell:not(.is-f0) .ai-intent-time-columns button.is-selected {
+  color: var(--cobalt-dark);
+  background: color-mix(in srgb, var(--soft-blue) 82%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cobalt) 58%, transparent);
+}
+
+.ai-shell:not(.is-f0) .ai-intent-time-columns {
+  display: grid;
+  min-width: 0;
+  grid-area: time;
+  grid-template-columns: minmax(0, 1fr) 8px minmax(0, 1fr);
+  align-items: start;
+  gap: 3px;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-time-columns > div {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: 24px 190px;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-time-columns > div > span {
+  align-self: center;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-time-columns > i {
+  padding-top: 31px;
+  color: var(--cobalt);
+  font-style: normal;
+  text-align: center;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-time-columns > div > div {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: 2px;
+  border-block: 1px dashed color-mix(in srgb, var(--cobalt) 24%, transparent);
+  scrollbar-width: thin;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-time-columns button {
+  display: block;
+  width: 100%;
+  min-height: 30px;
+  padding: 0;
+  font-size: 11px;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-datetime-panel > footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  grid-area: footer;
+  padding-top: 8px;
+  border-top: 1px dashed color-mix(in srgb, var(--cobalt) 28%, transparent);
+}
+
+.ai-shell:not(.is-f0) .ai-intent-datetime-panel > footer button {
+  min-height: 30px;
+  padding: 3px 4px;
+  color: var(--cobalt);
+  border-bottom: 1px solid currentColor;
+  border-radius: 0;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-datetime-panel > footer button:first-child {
+  margin-right: auto;
+}
+
 .ai-shell:not(.is-f0) .ai-intent-priority-select {
   position: relative;
   z-index: 8;
   grid-column: 1 / -1;
   min-width: 0;
+}
+
+.ai-shell:not(.is-f0) .ai-intent-priority-select.is-inline {
+  grid-column: auto;
 }
 
 .ai-shell:not(.is-f0) .ai-intent-priority-select .ai-intent-priority-trigger {

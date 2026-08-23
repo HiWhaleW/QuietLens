@@ -100,9 +100,24 @@ test("reads structured JSON lines, counts parse errors, and removes duplicate lo
   assert.equal(dashboard.ignored.duplicate_record_count, 1);
 });
 
-test("merges twenty browser exports without exposing identities and deduplicates repeat files", () => {
+test("reads a veFaaS TLS record whose content field contains the analytics JSON", () => {
+  const sample = event("decision_request_submitted");
+  const text = JSON.stringify({
+    function_id: "synthetic-function",
+    log_type: "stdout",
+    content: JSON.stringify({ type: "quietlens_analytics", event: sample }),
+  });
+  const dashboard = buildStage3AnalyticsDashboardFromExport(text, {
+    now: "2026-08-22T12:00:00.000Z",
+  });
+  assert.equal(dashboard.metrics.event_count, 1);
+  assert.equal(dashboard.metrics.decision_request_count, 1);
+  assert.equal(dashboard.ignored.invalid_record_count, 0);
+});
+
+test("merges twenty server log exports without exposing identities and deduplicates repeat files", () => {
   const exports = Array.from({ length: 20 }, (_, index) => JSON.stringify({
-    source: "browser_local_user_export",
+    source: "server_log_export",
     retention_days: 30,
     dropped_event_count: index === 0 ? 2 : 0,
     events: [event("decision_request_submitted", {
