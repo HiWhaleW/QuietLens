@@ -1,10 +1,13 @@
 <p align="center">
-  <img src="media/quietlens-product-preview.webp" alt="QuietLens desktop beta entry on a watercolor map of Shanghai" width="1200">
+  <a href="https://sdekc4dmt8f1hv4vi6l2k.apigateway-cn-shanghai.volceapi.com/">
+    <img src="media/quietlens-product-preview.webp" alt="QuietLens · 静处 desktop beta entry on a watercolor map of Shanghai" width="1200">
+  </a>
 </p>
 
-<h1 align="center">QuietLens</h1>
+<h1 align="center">QuietLens · 静处</h1>
 
 <p align="center">
+  <strong>中文名：静处</strong><br>
   An evidence-backed place decision agent for finding lower-friction work and recovery spaces.<br>
   It does not ask which café is most popular. It asks which place is less likely to disrupt what you need to do right now.
 </p>
