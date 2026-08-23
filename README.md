@@ -7,7 +7,6 @@
 <h1 align="center">QuietLens · 静处</h1>
 
 <p align="center">
-  <strong>中文名：静处</strong><br>
   An evidence-backed place decision agent for finding lower-friction work and recovery spaces.<br>
   It does not ask which café is most popular. It asks which place is less likely to disrupt what you need to do right now.
 </p>
