@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 
 import {
   betaAccessHealth,
@@ -14,6 +19,7 @@ import worker from "../worker/index.js";
 
 const inviteSecret = "synthetic-invite-secret-00000000000000000000";
 const sessionSecret = "synthetic-session-secret-0000000000000000000";
+const execFileAsync = promisify(execFile);
 
 async function betaFixture(overrides = {}, invitationCount = 3) {
   const codes = Array.from({ length: invitationCount }, (_, index) => `QUIETLENS-${String(index + 1).padStart(2, "0")}-SYNTHETIC_token`);
@@ -80,6 +86,53 @@ test("accepts exactly twenty independent invitations for Stage 3 and rejects cou
     }), /BETA_ACCESS_CONFIG_INVALID/);
   }
 });
+
+test("extends three invitations to twenty without rotating existing codes or secrets", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "quietlens-invite-extension-"));
+  const originalDirectory = path.join(root, "original");
+  const expandedDirectory = path.join(root, "expanded");
+  try {
+    await execFileAsync(process.execPath, [
+      "scripts/generate-beta-invites.mjs",
+      `--output=${originalDirectory}`,
+      "--count=3",
+    ]);
+    const legacyEnvironmentPath = path.join(originalDirectory, "beta-environment.env");
+    const legacyEnvironment = (await readFile(legacyEnvironmentPath, "utf8"))
+      .split(/\r?\n/u)
+      .filter((line) => !line.startsWith("QL_BETA_INVITATION_COUNT="))
+      .join("\n");
+    await writeFile(legacyEnvironmentPath, legacyEnvironment, { mode: 0o600 });
+    await execFileAsync(process.execPath, [
+      "scripts/generate-beta-invites.mjs",
+      `--output=${expandedDirectory}`,
+      `--extend-from=${originalDirectory}`,
+      "--count=20",
+    ]);
+
+    const originalDistribution = JSON.parse(await readFile(path.join(originalDirectory, "invite-distribution.json"), "utf8"));
+    const expandedDistribution = JSON.parse(await readFile(path.join(expandedDirectory, "invite-distribution.json"), "utf8"));
+    const originalEnvironment = parseTestEnvironment(await readFile(path.join(originalDirectory, "beta-environment.env"), "utf8"));
+    const expandedEnvironment = parseTestEnvironment(await readFile(path.join(expandedDirectory, "beta-environment.env"), "utf8"));
+
+    assert.equal(expandedDistribution.invitations.length, 20);
+    assert.deepEqual(expandedDistribution.invitations.slice(0, 3), originalDistribution.invitations);
+    assert.equal(expandedEnvironment.QL_BETA_INVITE_SECRET, originalEnvironment.QL_BETA_INVITE_SECRET);
+    assert.equal(expandedEnvironment.QL_BETA_SESSION_SECRET, originalEnvironment.QL_BETA_SESSION_SECRET);
+    assert.equal(expandedEnvironment.QL_BETA_INVITATION_COUNT, "20");
+    assert.equal((await stat(path.join(expandedDirectory, "invite-distribution.json"))).mode & 0o777, 0o600);
+    assert.equal((await stat(path.join(expandedDirectory, "beta-environment.env"))).mode & 0o777, 0o600);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+function parseTestEnvironment(source) {
+  return Object.fromEntries(source.split(/\r?\n/u).filter(Boolean).map((line) => {
+    const separator = line.indexOf("=");
+    return [line.slice(0, separator), line.slice(separator + 1)];
+  }));
+}
 
 test("redeems a synthetic invite without exposing its raw value", async () => {
   const fixture = await betaFixture();
