@@ -7,6 +7,7 @@ import { preprocessUserInput } from "../src/ai-native/intent/inputPreprocessor.j
 import { retrieveEvidence } from "../src/ai-native/evidence/retrieveEvidence.js";
 import { validateEvidenceStore } from "../src/ai-native/evidence/validateStore.js";
 import { recommendForDecisionRequest } from "../worker/services/decisionService.js";
+import { resetRateLimit } from "../worker/security/rateLimit.js";
 import worker from "../worker/index.js";
 import { loadEvidenceStore } from "./phase3b-fixtures.mjs";
 
@@ -205,6 +206,7 @@ test("exposes readiness without secrets and applies security headers", async () 
 });
 
 test("rate limits repeated API writes with a deterministic retry contract", async () => {
+  resetRateLimit();
   const env = runtime({ QL_RATE_LIMIT_MAX: "1", QL_RATE_LIMIT_WINDOW_MS: "60000" }).env;
   const request = () => new Request("https://quietlens.test/api/analytics", {
     method: "POST",

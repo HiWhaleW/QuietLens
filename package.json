@@ -24,7 +24,7 @@
     "test:ai-eval": "node --test tests/ai-evaluation.test.mjs && node scripts/run-phase3b-eval.mjs",
     "test:phase3b": "npm run test:evidence && npm run test:analytics && npm run test:account && npm run test:beta && npm run test:ai-eval",
     "test:phase3c": "node --test tests/ai-phase3c-core.test.mjs tests/ai-phase3c-api.test.mjs tests/ai-native-removal.test.mjs",
-    "test:phase3d": "npm run test:phase3b && npm run test:phase3c && node --test tests/ai-phase3d.test.mjs && npm run test:sites && npm run test:media && npm run test:map",
+    "test:phase3d": "npm run test:phase3b && npm run test:phase3c && node --test tests/ai-phase3d.test.mjs tests/ai-rate-limit.test.mjs && npm run test:sites && npm run test:media && npm run test:map",
     "eval:phase3c:high-risk": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs",
     "eval:phase3c:all": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs --all",
     "eval:phase3d:high-risk": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs --phase3d",
