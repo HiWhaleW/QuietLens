@@ -171,3 +171,46 @@ test("keeps model usage observations server-owned", async () => {
   assert.deepEqual(await response.json(), { error: { code: "ANALYTICS_EVENT_SERVER_ONLY" } });
   assert.equal(writeCount, 0);
 });
+
+test("rejects a malformed event body without leaking internal error text", async () => {
+  for (const body of ["null", "[1,2]", '"hi"', "7"]) {
+    const response = await routeAnalyticsRequest(new Request("https://quietlens.test/api/analytics", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://quietlens.test" },
+      body,
+    }), { QUIETLENS_ANALYTICS_SINK: { write: async () => {} } });
+
+    assert.equal(response.status, 400, `body ${body} should be a client error`);
+    assert.deepEqual(await response.json(), { error: { code: "ANALYTICS_EVENT_INVALID" } });
+  }
+});
+
+test("returns a stable code when the sink fails instead of the raw exception", async () => {
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const response = await routeAnalyticsRequest(new Request("https://quietlens.test/api/analytics", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://quietlens.test" },
+      body: JSON.stringify(makeEvent("page_state_viewed")),
+    }), {
+      QUIETLENS_ANALYTICS_SINK: { write: async () => { throw new Error("postgres://user:secret@db.internal/analytics unreachable"); } },
+    });
+
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: { code: "ANALYTICS_FAILED" } });
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test("keeps readJson request faults mapped to their own status", async () => {
+  const response = await routeAnalyticsRequest(new Request("https://quietlens.test/api/analytics", {
+    method: "POST",
+    headers: { "content-type": "text/plain", origin: "https://quietlens.test" },
+    body: "{}",
+  }), {});
+
+  assert.equal(response.status, 415);
+  assert.deepEqual(await response.json(), { error: { code: "CONTENT_TYPE_INVALID" } });
+});

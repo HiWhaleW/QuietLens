@@ -3,6 +3,7 @@ import {
   validateAnalyticsEvent,
 } from "../../src/ai-native/analytics/eventContract.js";
 import { emitAnalyticsEvent } from "../analytics/telemetry.js";
+import { emitOperationalEvent } from "../observability/runtime.js";
 import { jsonResponse, readJson, sameOriginAllowed } from "./http.js";
 
 export async function routeAnalyticsRequest(request, env) {
@@ -11,6 +12,12 @@ export async function routeAnalyticsRequest(request, env) {
   if (!sameOriginAllowed(request)) return jsonResponse({ error: { code: "ORIGIN_NOT_ALLOWED" } }, 403);
   try {
     const payload = await readJson(request);
+    // A JSON body of `null`, an array, or a bare scalar is a malformed event,
+    // not an internal fault. Reading event_name off it used to throw and the
+    // raw TypeError message was returned to the caller with a 500.
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return jsonResponse({ error: { code: "ANALYTICS_EVENT_INVALID" } }, 400);
+    }
     if (SERVER_ONLY_EVENT_NAMES.includes(payload.event_name)) {
       return jsonResponse({ error: { code: "ANALYTICS_EVENT_SERVER_ONLY" } }, 403);
     }
@@ -20,6 +27,15 @@ export async function routeAnalyticsRequest(request, env) {
     await emitAnalyticsEvent(env, event);
     return jsonResponse({ accepted: true }, 202);
   } catch (error) {
-    return jsonResponse({ error: { code: error.message ?? "ANALYTICS_FAILED" } }, error.status ?? 500);
+    // readJson raises request faults carrying a status and a stable code.
+    // Anything else is internal and must not have its message handed back.
+    if (error?.status) return jsonResponse({ error: { code: error.message } }, error.status);
+    await emitOperationalEvent(env, {
+      severity: "error",
+      code: "ANALYTICS_FAILED",
+      route: "/api/analytics",
+      status: 500,
+    });
+    return jsonResponse({ error: { code: "ANALYTICS_FAILED" } }, 500);
   }
 }
