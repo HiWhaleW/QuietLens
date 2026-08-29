@@ -26,6 +26,9 @@ import { emitOperationalEvent } from "../observability/runtime.js";
 const DEFAULT_INTENT_MODEL = "deepseek-v4-flash";
 const DEFAULT_REASONING_MODEL = "deepseek-v4-flash";
 const DEFAULT_REASONING_TIMEOUT_MS = 7000;
+// The repair attempt shares one budget with the first call. Below this much
+// remaining time the retry cannot complete, so it is skipped rather than spent.
+const REASONING_RETRY_MIN_BUDGET_MS = 1500;
 const TRANSIENT_REASONING_ERRORS = new Set([
   "MODEL_TIMEOUT",
   "MODEL_NETWORK_ERROR",
@@ -383,13 +386,28 @@ export async function recommendForDecisionRequest(env, payload, { workflowStarte
     properties: { candidate_count: retrieval.candidates.length },
   });
 
+  // The model budget starts once the workflow is ready to call the model.
+  // Measuring it from reasoningStarted charged the decision_reasoning_started
+  // analytics write against the model's own time. reasoningStarted still backs
+  // the reported duration metrics.
+  const reasoningDeadline = Date.now() + reasoningTimeoutMs;
+
   let verification = null;
   let reasoned = null;
   let reasoningModelCalls = 0;
+  let pendingTransientError = null;
   const modelUsages = [];
   const verificationRepairCodes = [];
   try {
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      const remainingMs = reasoningDeadline - Date.now();
+      // A first attempt that times out consumes the whole budget, which left
+      // the retry with 1ms and made it fail by construction: a guaranteed
+      // second billed call that could never repair anything.
+      if (attempt > 0 && remainingMs < REASONING_RETRY_MIN_BUDGET_MS) {
+        verificationRepairCodes.push("REASONING_RETRY_BUDGET_EXHAUSTED");
+        break;
+      }
       reasoningModelCalls += 1;
       try {
         reasoned = await reasonAboutCandidates({
@@ -398,11 +416,13 @@ export async function recommendForDecisionRequest(env, payload, { workflowStarte
           request,
           retrieval,
           verificationIssues: verification?.issues ?? [],
-          timeoutMs: Math.max(1, reasoningTimeoutMs - (Date.now() - reasoningStarted)),
+          timeoutMs: Math.max(1, remainingMs),
         });
+        pendingTransientError = null;
       } catch (error) {
         if (attempt === 0 && TRANSIENT_REASONING_ERRORS.has(error.code)) {
           verificationRepairCodes.push(error.code);
+          pendingTransientError = error;
           continue;
         }
         throw error;
@@ -420,6 +440,9 @@ export async function recommendForDecisionRequest(env, payload, { workflowStarte
       if (verification.valid) break;
       verificationRepairCodes.push(...verification.issues.map((issue) => issue.code));
     }
+    // The first attempt failed transiently and the retry was skipped, so the
+    // original failure is still the outcome of this request.
+    if (pendingTransientError) throw pendingTransientError;
   } catch (error) {
     error.model_calls = (error.model_calls ?? 0) + reasoningModelCalls;
     error.verification_repair_codes = [...new Set(verificationRepairCodes)];
