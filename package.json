@@ -14,6 +14,7 @@
     "start": "node dist/vefaas/server.mjs",
     "test:map": "node --test tests/map-projection.test.mjs",
     "test:sites": "node --test tests/sites-worker.test.mjs tests/vefaas-static-assets.test.mjs",
+    "test:request-edge": "node --test tests/ai-analytics.test.mjs tests/vefaas-static-assets.test.mjs",
     "test:evidence": "node --test tests/ai-amap-adapter.test.mjs tests/ai-candidate-evidence-pipeline.test.mjs tests/ai-contracts.test.mjs tests/ai-document-consistency.test.mjs tests/ai-evidence-pipeline-contracts.test.mjs tests/ai-evidence-review-access.test.mjs tests/ai-evidence-review-route.test.mjs tests/ai-evidence-review-service.test.mjs tests/ai-evidence-review-supabase.test.mjs tests/ai-evidence-review-workbench.test.mjs tests/ai-evidence-review-workbench-ui.test.mjs tests/ai-feedback-candidate.test.mjs tests/ai-hard-constraints.test.mjs tests/ai-legacy-poi-expansion.test.mjs tests/ai-source-access-policy.test.mjs tests/ai-stage3-persistence-contracts.test.mjs tests/ai-stage3-mysql-adapter.test.mjs && node scripts/run-phase3b-evidence.mjs",
     "build:evidence-pipeline": "node scripts/build-evidence-v1-pipeline.mjs",
     "test:analytics": "node --test tests/ai-analytics.test.mjs tests/ai-decision-cost.test.mjs tests/ai-stage3-analytics-dashboard.test.mjs",
@@ -24,13 +25,13 @@
     "test:ai-eval": "node --test tests/ai-evaluation.test.mjs && node scripts/run-phase3b-eval.mjs",
     "test:phase3b": "npm run test:evidence && npm run test:analytics && npm run test:account && npm run test:beta && npm run test:ai-eval",
     "test:phase3c": "node --test tests/ai-phase3c-core.test.mjs tests/ai-phase3c-api.test.mjs tests/ai-native-removal.test.mjs",
-    "test:phase3d": "npm run test:phase3b && npm run test:phase3c && node --test tests/ai-phase3d.test.mjs && npm run test:sites && npm run test:media && npm run test:map",
+    "test:phase3d": "npm run build && npm run test:phase3b && npm run test:phase3c && node --test tests/ai-phase3d.test.mjs && npm run test:sites && npm run test:media && npm run test:map",
     "eval:phase3c:high-risk": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs",
     "eval:phase3c:all": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs --all",
     "eval:phase3d:high-risk": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs --phase3d",
     "eval:phase3d:all": "node --env-file-if-exists=.env.local scripts/run-phase3c-eval.mjs --phase3d --all",
     "check:phase3d": "node scripts/check-phase3d-regression.mjs",
-    "gate:phase3d": "npm run test:phase3d && npm run build && npm run check:phase3d"
+    "gate:phase3d": "npm run test:phase3d && npm run check:phase3d"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

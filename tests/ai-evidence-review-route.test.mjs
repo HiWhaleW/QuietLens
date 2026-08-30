@@ -188,6 +188,29 @@ test("fails closed when the privileged authenticator or persistent runtime is ab
   assert.equal((await withMemoryOnly.json()).error.code, "EVIDENCE_REVIEW_RUNTIME_NOT_CONFIGURED");
 });
 
+test("does not expose a status-bearing authenticator exception", async () => {
+  const env = runtimeEnv({
+    QUIETLENS_EVIDENCE_REVIEW_AUTHENTICATOR: {
+      trust_kind: "external_identity",
+      authenticate: async () => {
+        throw Object.assign(
+          new Error("https://reviewer:secret@identity.internal/session failed"),
+          { status: 401 },
+        );
+      },
+    },
+  });
+  const response = await worker.fetch(
+    new Request("https://quietlens.test/api/evidence-review/workspace"),
+    env,
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 500);
+  assert.deepEqual(body, { error: { code: "EVIDENCE_REVIEW_FAILED" } });
+  assert.doesNotMatch(JSON.stringify(body), /secret|identity\.internal/);
+});
+
 test("returns a verified safe workspace only after trusted server authentication", async () => {
   let authenticationCalls = 0;
   const env = runtimeEnv({

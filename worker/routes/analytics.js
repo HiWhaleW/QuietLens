@@ -4,7 +4,12 @@ import {
 } from "../../src/ai-native/analytics/eventContract.js";
 import { emitAnalyticsEvent } from "../analytics/telemetry.js";
 import { emitOperationalEvent } from "../observability/runtime.js";
-import { jsonResponse, readJson, sameOriginAllowed } from "./http.js";
+import {
+  isRequestFault,
+  jsonResponse,
+  readJson,
+  sameOriginAllowed,
+} from "./http.js";
 
 export async function routeAnalyticsRequest(request, env) {
   if (new URL(request.url).pathname !== "/api/analytics") return null;
@@ -27,9 +32,9 @@ export async function routeAnalyticsRequest(request, env) {
     await emitAnalyticsEvent(env, event);
     return jsonResponse({ accepted: true }, 202);
   } catch (error) {
-    // readJson raises request faults carrying a status and a stable code.
-    // Anything else is internal and must not have its message handed back.
-    if (error?.status) return jsonResponse({ error: { code: error.message } }, error.status);
+    // Only faults created by the request parser are safe to expose. Downstream
+    // errors may carry a status and a secret-bearing message of their own.
+    if (isRequestFault(error)) return jsonResponse({ error: { code: error.code } }, error.status);
     await emitOperationalEvent(env, {
       severity: "error",
       code: "ANALYTICS_FAILED",
