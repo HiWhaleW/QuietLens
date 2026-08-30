@@ -24,6 +24,10 @@
   ·
   <a href="#run-locally"><strong>Run locally</strong></a>
   ·
+  <a href="ARCHITECTURE.md"><strong>Architecture</strong></a>
+  ·
+  <a href="CONTRIBUTING.md"><strong>Contribute</strong></a>
+  ·
   <a href="https://github.com/HiWhaleW/QuietLens/issues"><strong>Report an issue</strong></a>
 </p>
 
@@ -145,6 +149,8 @@ npm run dev
 ```
 
 ## Architecture
+
+QuietLens is one user-facing decision agent running on a fixed, deterministic Harness. The model does not choose arbitrary tools, mutate Evidence, or decide whether its own output is publishable. See [ARCHITECTURE.md](ARCHITECTURE.md) for the execution-scope, approval, failure, and evidence boundaries.
 
 - React 19 and Vite 6
 - a bounded Intent Interpreter and Decision Reasoner

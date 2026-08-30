@@ -194,7 +194,14 @@ test("returns a stable code when the sink fails instead of the raw exception", a
       headers: { "content-type": "application/json", origin: "https://quietlens.test" },
       body: JSON.stringify(makeEvent("page_state_viewed")),
     }), {
-      QUIETLENS_ANALYTICS_SINK: { write: async () => { throw new Error("postgres://user:secret@db.internal/analytics unreachable"); } },
+      QUIETLENS_ANALYTICS_SINK: {
+        write: async () => {
+          throw Object.assign(
+            new Error("postgres://user:secret@db.internal/analytics unreachable"),
+            { status: 503 },
+          );
+        },
+      },
     });
 
     assert.equal(response.status, 500);
