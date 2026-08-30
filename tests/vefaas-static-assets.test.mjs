@@ -93,3 +93,15 @@ test("production veFaaS packaging refuses to ship without an external HTTPS medi
   assert.notEqual(result.status, 0);
   assert.match(`${result.stdout}\n${result.stderr}`, /requires VITE_MEDIA_CDN_BASE_URL/);
 });
+
+test("answers malformed percent-encoded paths instead of throwing", async () => {
+  const root = await fixture();
+  try {
+    for (const target of ["https://quietlens.test/%", "https://quietlens.test/%zz", "https://quietlens.test/a%E0%A4b"]) {
+      const response = await serveStaticAsset(new Request(target), root);
+      assert.equal(response.status, 404, `${target} should resolve to a response, not a thrown URIError`);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
