@@ -314,6 +314,21 @@ export function renderDeterministicSingleCandidate({ request, retrieval, store }
       ...new Set([...(evidenceByAttribute.get(attribute) ?? []), ...result.evidence_ids]),
     ]);
   }
+  // verifyAndRenderDecisionDraft rejects any draft that omits retrieved counter
+  // evidence (COUNTER_EVIDENCE_OMITTED), so the same records have to be grouped
+  // by attribute here. Leaving this empty made every single-candidate result
+  // unrenderable as soon as the one eligible place carried a documented
+  // conflict on any retrieved attribute -- which retrieval actively favours,
+  // since evidenceRank adds 25 points for a non-none conflict_status.
+  const conflictedByAttribute = new Map();
+  for (const record of candidate.evidence) {
+    if (!["documented", "unresolved"].includes(record.conflict_status)) continue;
+    if (record.publishability === "not_factual" || record.epistemic_status === "model_inference") continue;
+    conflictedByAttribute.set(record.attribute, [
+      ...new Set([...(conflictedByAttribute.get(record.attribute) ?? []), record.evidence_id]),
+    ]);
+  }
+
   const draft = {
     flow_schema_version: AI_FLOW_SCHEMA_VERSION,
     request_id: request.request_id,
@@ -323,7 +338,7 @@ export function renderDeterministicSingleCandidate({ request, retrieval, store }
       place_id: candidate.place.place_id,
       role: "primary",
       fit_evidence_groups: [...evidenceByAttribute].map(([attribute, evidence_ids]) => ({ attribute, evidence_ids })),
-      tradeoff_evidence_groups: [],
+      tradeoff_evidence_groups: [...conflictedByAttribute].map(([attribute, evidence_ids]) => ({ attribute, evidence_ids })),
       unknown_attributes: ["realtime_seats", "realtime_noise"],
       assumption_refs: request.assumptions,
     }],

@@ -355,7 +355,37 @@ export async function recommendForDecisionRequest(env, payload, { workflowStarte
   }
 
   if (eligibleCandidateCount === 1) {
-    const verification = renderDeterministicSingleCandidate({ request, retrieval, store });
+    let verification = null;
+    try {
+      verification = renderDeterministicSingleCandidate({ request, retrieval, store });
+    } catch (error) {
+      // The deterministic renderer could not build a brief that satisfies the
+      // verification contract. Publishing regardless would step around the
+      // safety boundary, so refuse. Previously this threw past the route and
+      // surfaced as an unlabelled 500 with no decision analytics attached.
+      await emitOperationalEvent(env, {
+        severity: "error",
+        code: error.code ?? "DETERMINISTIC_SINGLE_CANDIDATE_INVALID",
+        requestId: request.request_id,
+      });
+      const brief = renderDeterministicRefusal({
+        request,
+        retrieval,
+        reasonCode: "insufficient_comparable_candidates",
+        modelVersion: "not-invoked",
+        promptVersion: "deterministic-refusal-v0.1.0",
+      });
+      const refused = publishedResult({
+        brief,
+        store,
+        retrieval,
+        verification: { valid: true, issues: [] },
+        metrics: { model_calls: 0, usage: [], verification_repair_codes: [] },
+      });
+      await recordRefused(env, payload, refused, workflowStartedAt);
+      return refused;
+    }
+
     const brief = verification.brief;
     const result = publishedResult({
       brief,
