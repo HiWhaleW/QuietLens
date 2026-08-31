@@ -1,0 +1,5 @@
+# A clean public clone has no AGENTS.md because the owner's local operating
+# record is intentionally private. Load the public contribution contract as
+# the repository-level instruction fallback instead.
+project_doc_fallback_filenames = ["CONTRIBUTING.md"]
+project_doc_max_bytes = 32768

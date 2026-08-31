@@ -7,7 +7,7 @@ const DELETED_COUNT_KEYS = Object.freeze([
   "cost_observation_count",
 ]);
 
-class BetaParticipantDataError extends Error {
+export class BetaParticipantDataError extends Error {
   constructor(code, status) {
     super(code);
     this.code = code;

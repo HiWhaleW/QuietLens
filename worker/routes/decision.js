@@ -4,7 +4,12 @@ import {
   publicServiceError,
   recommendForDecisionRequest,
 } from "../services/decisionService.js";
-import { jsonResponse, readJson, sameOriginAllowed } from "./http.js";
+import {
+  isRequestFault,
+  jsonResponse,
+  readJson,
+  sameOriginAllowed,
+} from "./http.js";
 import { emitOperationalEvent } from "../observability/runtime.js";
 
 const ROUTES = {
@@ -29,8 +34,8 @@ export async function routeDecisionRequest(request, env) {
     }
     return jsonResponse({ data: await handler(env, payload) });
   } catch (error) {
-    const mapped = error.status
-      ? { code: error.message, status: error.status }
+    const mapped = isRequestFault(error)
+      ? { code: error.code, status: error.status }
       : publicServiceError(error);
     await emitOperationalEvent(env, {
       severity: mapped.status >= 500 ? "error" : "warn",

@@ -4,7 +4,7 @@ import {
   queryEvidenceReviewWorkspace,
 } from "../services/evidenceReviewService.js";
 import { resolveSupabaseEvidenceReviewRuntime } from "../supabase/evidenceReviewRuntime.js";
-import { jsonResponse, readJson, sameOriginAllowed } from "./http.js";
+import { isRequestFault, jsonResponse, readJson, sameOriginAllowed } from "./http.js";
 
 const WORKSPACE_PATH = "/api/evidence-review/workspace";
 const DECISIONS_PATH = "/api/evidence-review/decisions";
@@ -40,9 +40,7 @@ function configuredRuntime(env) {
 
 function publicError(error) {
   const code = error?.message ?? "EVIDENCE_REVIEW_FAILED";
-  if (Number.isInteger(error?.status) && error.status >= 400 && error.status < 500) {
-    return { code, status: error.status };
-  }
+  if (isRequestFault(error)) return { code: error.code, status: error.status };
   if ([
     "EVIDENCE_REVIEW_AUTHENTICATOR_NOT_CONFIGURED",
     "EVIDENCE_REVIEW_RUNTIME_NOT_CONFIGURED",
