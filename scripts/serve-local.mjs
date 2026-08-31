@@ -36,7 +36,12 @@ const contentTypes = {
 
 async function serveAsset(request) {
   const url = new URL(request.url);
-  const relative = decodeURIComponent(url.pathname).replace(/^\/+/, "") || "index.html";
+  let relative;
+  try {
+    relative = decodeURIComponent(url.pathname).replace(/^\/+/, "") || "index.html";
+  } catch {
+    return new Response("Not found", { status: 404 });
+  }
   const file = path.resolve(clientRoot, relative);
   if (file !== clientRoot && !file.startsWith(`${clientRoot}${path.sep}`)) return new Response("Forbidden", { status: 403 });
   try {

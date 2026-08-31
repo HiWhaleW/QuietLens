@@ -7,8 +7,8 @@ import {
   parseBetaAccessConfig,
   redeemBetaInvite,
 } from "../beta/inviteAccess.js";
-import { deleteBetaParticipantData } from "../beta/participantData.js";
-import { jsonResponse, readJson, sameOriginAllowed } from "./http.js";
+import { BetaParticipantDataError, deleteBetaParticipantData } from "../beta/participantData.js";
+import { isRequestFault, jsonResponse, readJson, sameOriginAllowed } from "./http.js";
 
 const PREFIX = "/api/beta-access/";
 
@@ -64,7 +64,7 @@ export async function routeBetaAccessRequest(request, env) {
         betaSessionCookie(session.token, resolved.config.ttlSeconds),
       );
     } catch (error) {
-      if (error?.status) return jsonResponse({ error: { code: error.message } }, error.status);
+      if (isRequestFault(error)) return jsonResponse({ error: { code: error.code } }, error.status);
       return jsonResponse({ error: { code: "BETA_INVITE_INVALID" } }, 401);
     }
   }
@@ -84,7 +84,9 @@ export async function routeBetaAccessRequest(request, env) {
       const receipt = await deleteBetaParticipantData(env, session.participant_id);
       return responseWithCookie({ data: receipt }, clearBetaSessionCookie());
     } catch (error) {
-      if (error?.status) return jsonResponse({ error: { code: error.message } }, error.status);
+      if (error instanceof BetaParticipantDataError) {
+        return jsonResponse({ error: { code: error.code } }, error.status);
+      }
       return jsonResponse({ error: { code: "BETA_SESSION_REQUIRED" } }, 401);
     }
   }
