@@ -52,7 +52,16 @@ function notModified(request, etag, modifiedAt) {
 
 export async function serveStaticAsset(request, clientRoot) {
   const url = new URL(request.url);
-  const relative = decodeURIComponent(url.pathname).replace(/^\/+/, "") || "index.html";
+  let relative;
+  try {
+    relative = decodeURIComponent(url.pathname).replace(/^\/+/, "") || "index.html";
+  } catch {
+    // Malformed percent-encoding, e.g. "/%". decodeURIComponent throws a
+    // URIError, and outside this guard it escaped the worker entirely: past the
+    // security-header wrapper and into the server's catch-all, which answered
+    // with a bare 500 and no security headers.
+    return new Response("Not found", { status: 404 });
+  }
   const file = path.resolve(clientRoot, relative);
   if (file !== clientRoot && !file.startsWith(`${clientRoot}${path.sep}`)) {
     return new Response("Forbidden", { status: 403 });

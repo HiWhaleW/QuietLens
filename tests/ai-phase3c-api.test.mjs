@@ -177,6 +177,31 @@ test("rejects a non-header-safe DeepSeek credential before fetch", async () => {
   assert.equal(fetchCalled, false);
 });
 
+test("does not expose a status-bearing model exception as a trusted request fault", async () => {
+  const runtime = environment();
+  runtime.env.QUIETLENS_MODEL_CLIENT = {
+    async callStructured() {
+      throw Object.assign(
+        new Error("provider://user:secret@internal.example unavailable"),
+        { status: 418 },
+      );
+    },
+  };
+
+  const response = await post("/api/decision/interpret", {
+    session_id: "sess-untrusted-status",
+    request_id: "req-untrusted-status",
+    user_text: "明天下午两点在黄浦工作90分钟。",
+    mode: "initial",
+    page_context: { area: "黄浦区" },
+  }, runtime.env);
+  const body = await response.json();
+
+  assert.equal(response.status, 500);
+  assert.deepEqual(body, { error: { code: "INTERNAL_ERROR" } });
+  assert.doesNotMatch(JSON.stringify(body), /secret|internal\.example/);
+});
+
 test("runs the bounded intent and decision API without exposing model text", async () => {
   const runtime = environment();
   const interpretedResponse = await post("/api/decision/interpret", {

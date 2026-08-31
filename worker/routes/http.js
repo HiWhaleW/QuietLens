@@ -1,5 +1,22 @@
 const MAX_JSON_BYTES = 16_384;
 
+export class RequestFault extends Error {
+  constructor(code, status) {
+    super(code);
+    this.name = "RequestFault";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+export function isRequestFault(error) {
+  return error instanceof RequestFault
+    && typeof error.code === "string"
+    && Number.isInteger(error.status)
+    && error.status >= 400
+    && error.status < 500;
+}
+
 export function jsonResponse(value, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
@@ -29,15 +46,15 @@ export function withSecurityHeaders(response) {
 
 export async function readJson(request) {
   const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.includes("application/json")) throw Object.assign(new Error("CONTENT_TYPE_INVALID"), { status: 415 });
+  if (!contentType.includes("application/json")) throw new RequestFault("CONTENT_TYPE_INVALID", 415);
   const declared = Number(request.headers.get("content-length") ?? 0);
-  if (declared > MAX_JSON_BYTES) throw Object.assign(new Error("REQUEST_TOO_LARGE"), { status: 413 });
+  if (declared > MAX_JSON_BYTES) throw new RequestFault("REQUEST_TOO_LARGE", 413);
   const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_JSON_BYTES) throw Object.assign(new Error("REQUEST_TOO_LARGE"), { status: 413 });
+  if (new TextEncoder().encode(text).byteLength > MAX_JSON_BYTES) throw new RequestFault("REQUEST_TOO_LARGE", 413);
   try {
     return JSON.parse(text);
   } catch {
-    throw Object.assign(new Error("JSON_INVALID"), { status: 400 });
+    throw new RequestFault("JSON_INVALID", 400);
   }
 }
 
